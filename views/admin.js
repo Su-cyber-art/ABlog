@@ -290,6 +290,38 @@ function comments(ctx, d) {
 ` + adminBottom();
 }
 
+/** 订阅者 */
+function subscribers(ctx, d) {
+  const rows = d.rows.map(r => `
+          <tr>
+            <td class="cell-author" style="font-family:var(--font-body);font-weight:400">${esc(r.email)}</td>
+            <td class="cell-dim">${esc(r.date)}</td>
+            <td class="cell-ops">
+              <form class="inline" method="post" action="${ADMIN_PATH}/subscribers/delete" data-confirm="移除订阅者 ${esc(r.email)}？"><input type="hidden" name="email" value="${esc(r.email)}"><button class="op muted" type="submit">移除</button></form>
+            </td>
+          </tr>`).join('');
+
+  return adminTop(ctx, 'subs', '订阅者') + `
+    <div class="page-head page-head--posts">
+      <h2 class="page-title">订阅者</h2>
+      <span class="head-note">共 ${d.rows.length} 位 · 新随笔发布后可导出名单寄信</span>
+      <span class="spacer"></span>
+      <a class="btn btn-secondary" href="${ADMIN_PATH}/subscribers.csv">导出 CSV</a>
+    </div>
+
+    <div class="table-scroll">
+      <table class="table">
+        <thead><tr>
+          <th>邮箱</th><th style="width:18%">登记日期</th><th style="width:12%;text-align:right">操作</th>
+        </tr></thead>
+        <tbody>${rows}
+        </tbody>
+      </table>
+    </div>
+    ${d.rows.length ? '' : '<p class="empty-note">还没有人订阅。前台首页侧栏的订阅框会把邮箱记到这里。</p>'}
+` + adminBottom();
+}
+
 /** 站点设置 */
 function settings(ctx, d) {
   const s = ctx.s;
@@ -332,4 +364,4 @@ function settings(ctx, d) {
 ` + adminBottom();
 }
 
-module.exports = { login, dash, posts, editor, taxonomy, comments, settings };
+module.exports = { login, dash, posts, editor, taxonomy, comments, subscribers, settings };

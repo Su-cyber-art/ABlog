@@ -243,6 +243,23 @@ function register(app) {
     res.redirect(req.headers.referer || adminUrl('/comments'));
   }));
 
+  /* ── 订阅者 ── */
+  app.get(adminUrl('/subscribers'), guard((req, res) => {
+    res.html(view.subscribers(ctx(req), { rows: q.listSubscribers.all() }));
+  }));
+
+  app.post(adminUrl('/subscribers/delete'), guard((req, res) => {
+    q.delSubscriber.run(String(req.body.email || ''));
+    res.redirect(adminUrl('/subscribers'));
+  }));
+
+  app.get(adminUrl('/subscribers.csv'), guard((req, res) => {
+    const cell = v => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    const csv = '﻿email,date\n'
+      + q.listSubscribers.all().map(r => cell(r.email) + ',' + r.date).join('\n') + '\n';
+    res.download(csv, 'subscribers-' + today() + '.csv', 'text/csv; charset=utf-8');
+  }));
+
   /* ── 站点设置 ── */
   app.get(adminUrl('/settings'), guard((req, res) => {
     res.html(view.settings(ctx(req), {
