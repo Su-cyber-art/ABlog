@@ -1,7 +1,7 @@
 /* 默·博客 — 后台路由(登录/仪表盘/文章/写作/分类标签/评论/设置) */
 'use strict';
 const crypto = require('crypto');
-const { q, tx, getSetting, setSetting, siteSettings, seedAll, parseTags } = require('../lib/db');
+const { db, q, tx, getSetting, setSetting, siteSettings, seedAll, parseTags } = require('../lib/db');
 const {
   hashPassword, verifyPassword, makeToken, SESSION_DAYS,
   clientIp, loginBlocked, recordLoginFail, clearLoginFails
@@ -265,7 +265,8 @@ function register(app) {
     res.html(view.settings(ctx(req), {
       saved: req.query.saved === '1',
       reset: req.query.reset === '1',
-      pwChanged: req.query.pw === '1'
+      pwChanged: req.query.pw === '1',
+      importResult: ['ok', 'err'].includes(req.query.import) ? req.query.import : null
     }));
   }));
 
@@ -293,6 +294,78 @@ function register(app) {
   app.post(adminUrl('/reset'), guard((req, res) => {
     seedAll();
     res.redirect(adminUrl('/settings?reset=1'));
+  }));
+
+  /* ── 数据备份:导出 / 导入 ── */
+  app.get(adminUrl('/export'), guard((req, res) => {
+    const data = {
+      app: 'mo-blog', schema: 1, exportedAt: new Date().toISOString(),
+      posts: q.allPosts.all().map(p => ({
+        id: p.id, title: p.title, cat: p.cat, tags: parseTags(p),
+        date: p.date, status: p.status, views: p.views, content: p.content
+      })),
+      comments: q.commentsAll.all().map(c => ({
+        id: c.id, postId: c.post_id, author: c.author, date: c.date, status: c.status, text: c.text
+      })),
+      cats: q.cats.all().map(r => r.name),
+      tags: q.tags.all().map(r => r.name),
+      subscribers: q.listSubscribers.all().map(r => ({ email: r.email, date: r.date })),
+      settings: siteSettings()
+    };
+    res.download(JSON.stringify(data, null, 2), 'mo-blog-backup-' + today() + '.json', 'application/json; charset=utf-8');
+  }));
+
+  app.post(adminUrl('/import'), guard((req, res) => {
+    let data;
+    try { data = JSON.parse(String(req.body.payload || '')); } catch (e) { data = null; }
+    const bad = !data || data.app !== 'mo-blog'
+      || !Array.isArray(data.posts) || !Array.isArray(data.comments)
+      || !Array.isArray(data.cats) || !Array.isArray(data.tags);
+    if (bad) return res.redirect(adminUrl('/settings?import=err'));
+
+    const str = (v, n) => String(v == null ? '' : v).slice(0, n);
+    const dateOk = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : today();
+    try {
+      tx(() => {
+        db.exec('DELETE FROM posts; DELETE FROM comments; DELETE FROM cats; DELETE FROM tags; DELETE FROM subscribers;');
+        db.exec("DELETE FROM sqlite_sequence WHERE name IN ('posts','comments');");
+        const insP = db.prepare('INSERT INTO posts(id,title,cat,tags,date,status,views,content) VALUES(?,?,?,?,?,?,?,?)');
+        for (const p of data.posts.slice(0, 100000)) {
+          insP.run(Number(p.id) || null, str(p.title, 200) || '未命名随笔', str(p.cat, 40) || '未分类',
+            JSON.stringify(Array.isArray(p.tags) ? p.tags.map(t => str(t, 40)).filter(Boolean).slice(0, 20) : []),
+            dateOk(p.date), p.status === 'published' ? 'published' : 'draft',
+            Math.max(0, parseInt(p.views, 10) || 0), String(p.content == null ? '' : p.content));
+        }
+        const insC = db.prepare('INSERT INTO comments(id,post_id,author,date,status,text) VALUES(?,?,?,?,?,?)');
+        for (const c of data.comments.slice(0, 500000)) {
+          insC.run(Number(c.id) || null, Number(c.postId) || 0, str(c.author, 40) || '匿名',
+            dateOk(c.date), ['pending', 'approved', 'spam'].includes(c.status) ? c.status : 'pending',
+            str(c.text, 2000));
+        }
+        const insCat = db.prepare('INSERT OR IGNORE INTO cats(name,pos) VALUES(?,?)');
+        data.cats.forEach((n, i) => { const v = str(n, 40); if (v) insCat.run(v, i); });
+        const insTag = db.prepare('INSERT OR IGNORE INTO tags(name,pos) VALUES(?,?)');
+        data.tags.forEach((n, i) => { const v = str(n, 40); if (v) insTag.run(v, i); });
+        if (Array.isArray(data.subscribers)) {
+          for (const sub of data.subscribers.slice(0, 100000)) {
+            const email = str(sub && sub.email, 120).toLowerCase();
+            if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) q.addSubscriber.run(email, dateOk(sub.date));
+          }
+        }
+        if (data.settings && typeof data.settings === 'object') {
+          const s = data.settings;
+          if (s.title != null) setSetting('title', str(s.title, 60) || '默');
+          if (s.subtitle != null) setSetting('subtitle', str(s.subtitle, 120));
+          if (s.author != null) setSetting('author', str(s.author, 40));
+          if (s.footer != null) setSetting('footer', str(s.footer, 120));
+          if (s.perPage != null) setSetting('perPage', Math.min(20, Math.max(1, parseInt(s.perPage, 10) || 5)));
+        }
+      });
+    } catch (e) {
+      console.error('[默·博客] 导入失败:', e.message);
+      return res.redirect(adminUrl('/settings?import=err'));
+    }
+    res.redirect(adminUrl('/settings?import=ok'));
   }));
 }
 

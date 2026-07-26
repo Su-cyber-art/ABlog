@@ -346,6 +346,23 @@ function settings(ctx, d) {
       </form>
 
       <div class="settings-reset">
+        <h4>数据备份</h4>
+        <p class="note">导出为一个 JSON 文件(文章、评论、分类标签、订阅者与站点设置;不含密码)。</p>
+        <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
+          <a class="btn btn-secondary" href="${ADMIN_PATH}/export">导出备份</a>
+          ${d.importResult === 'ok' ? '<span class="form-ok">导入完成。</span>' : ''}
+          ${d.importResult === 'err' ? '<span class="form-ok" style="color:var(--color-neutral-600)">导入失败：备份内容无法识别。</span>' : ''}
+        </div>
+        <form method="post" action="${ADMIN_PATH}/import" data-confirm="导入将覆盖现有全部文章、评论、分类标签与订阅者，确定继续？">
+          <div class="field" style="margin-bottom:10px">
+            <label>恢复备份（粘贴备份文件的 JSON 内容）</label>
+            <textarea class="input" name="payload" rows="4" placeholder='{"app":"mo-blog", …}'></textarea>
+          </div>
+          <button class="btn btn-secondary" type="submit">导入并覆盖</button>
+        </form>
+      </div>
+
+      <div class="settings-reset">
         <h4>示例数据</h4>
         <p class="note">将文章、评论、分类与设置恢复为初始示例。</p>
         <form method="post" action="${ADMIN_PATH}/reset" data-confirm="恢复初始示例数据？当前的文章与评论会被覆盖。">
