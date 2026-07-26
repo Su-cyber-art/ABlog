@@ -66,7 +66,18 @@ function register(app) {
 
     const c = ctx(req, '');
     const comments = q.commentsFor.all(post.id);
+
+    // 上一篇(较新)/ 下一篇(较旧),仅对已发布文章
+    let prevPost = null, nextPost = null;
+    if (post.status === 'published') {
+      const pub = q.publishedPosts.all();
+      const idx = pub.findIndex(p => p.id === post.id);
+      if (idx > 0) prevPost = { id: pub[idx - 1].id, title: pub[idx - 1].title };
+      if (idx >= 0 && idx < pub.length - 1) nextPost = { id: pub[idx + 1].id, title: pub[idx + 1].title };
+    }
+
     res.html(view.article(c, {
+      prevPost, nextPost,
       art: {
         id: post.id,
         isDraft: post.status !== 'published',
@@ -95,22 +106,28 @@ function register(app) {
     res.redirect('/post/' + post.id + '?commented=1#comments');
   });
 
-  /* ── 归档 ── */
+  /* ── 归档(支持分类与标签两种筛选) ── */
   app.get('/archive', (req, res) => {
     const c = ctx(req, 'archive');
     const pub = q.publishedPosts.all();
     const cats = q.cats.all().map(r => r.name);
-    const archiveCat = cats.includes(req.query.cat) ? req.query.cat : '全部';
-    const filtered = pub.filter(p => archiveCat === '全部' || p.cat === archiveCat);
+    const tagFilter = String(req.query.tag || '').trim().slice(0, 40) || null;
+    const archiveCat = !tagFilter && cats.includes(req.query.cat) ? req.query.cat : '全部';
+    const filtered = tagFilter
+      ? pub.filter(p => parseTags(p).includes(tagFilter))
+      : pub.filter(p => archiveCat === '全部' || p.cat === archiveCat);
     const years = [...new Set(filtered.map(p => p.date.slice(0, 4)))].sort().reverse();
 
+    const chips = ['全部'].concat(cats).map(name => ({
+      name,
+      href: name === '全部' ? '/archive' : '/archive?cat=' + encodeURIComponent(name),
+      active: !tagFilter && archiveCat === name
+    }));
+    if (tagFilter) chips.unshift({ name: '标签「' + tagFilter + '」×', href: '/archive', active: true });
+
     res.html(view.archive(c, {
-      archiveSummary: '共 ' + filtered.length + ' 篇 · ' + archiveCat,
-      archiveChips: ['全部'].concat(cats).map(name => ({
-        name,
-        href: name === '全部' ? '/archive' : '/archive?cat=' + encodeURIComponent(name),
-        active: archiveCat === name
-      })),
+      archiveSummary: '共 ' + filtered.length + ' 篇 · ' + (tagFilter ? '标签「' + tagFilter + '」' : archiveCat),
+      archiveChips: chips,
       archiveGroups: years.map(y => {
         const items = filtered.filter(p => p.date.startsWith(y));
         return {

@@ -28,7 +28,7 @@ function home(ctx, d) {
             <span class="rail-cat-count">${c.count}</span>
           </a>`).join('');
 
-  const tags = d.railTags.map(t => `<span class="tag tag-outline">${esc(t)}</span>`).join('');
+  const tags = d.railTags.map(t => `<a class="tag tag-outline" href="/archive?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('');
 
   const subNote = d.subscribed
     ? '<p class="rail-note form-ok">已登记。新的随笔写好后，会寄一封信到你的邮箱。</p>'
@@ -81,8 +81,14 @@ function article(ctx, d) {
   const tags = art.tags.length
     ? `
     <div class="art-tags">
-      ${art.tags.map(t => `<span class="tag tag-outline">${esc(t)}</span>`).join('')}
+      ${art.tags.map(t => `<a class="tag tag-outline" href="/archive?tag=${encodeURIComponent(t)}">${esc(t)}</a>`).join('')}
     </div>` : '';
+
+  const postNav = (d.prevPost || d.nextPost) ? `
+    <nav class="post-nav">
+      <div class="pn-item">${d.prevPost ? `<span class="pn-label">← 较新</span><a href="/post/${d.prevPost.id}">${esc(d.prevPost.title)}</a>` : ''}</div>
+      <div class="pn-item pn-next">${d.nextPost ? `<span class="pn-label">较旧 →</span><a href="/post/${d.nextPost.id}">${esc(d.nextPost.title)}</a>` : ''}</div>
+    </nav>` : '';
 
   const list = comments.length ? `
       <div class="comment-list">
@@ -108,7 +114,7 @@ function article(ctx, d) {
     <div>${art.bodyHtml}</div>
 ${tags}
     <div class="fleuron"><span>❦</span></div>
-
+${postNav}
     <section class="comments" id="comments">
       <h3 class="comments-h">评论 <span class="count">（${art.commentCount}）</span></h3>${list}
 
