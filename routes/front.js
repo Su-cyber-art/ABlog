@@ -59,8 +59,10 @@ function register(app) {
     const post = id && q.postById.get(id);
     if (!post) return false;
     if (post.status !== 'published' && !req.isAdmin) return false; // 草稿仅登录后可预览
-    q.bumpViews.run(post.id);
-    post.views += 1;
+    if (req.method !== 'HEAD') { // HEAD(爬虫探测)不计阅读
+      q.bumpViews.run(post.id);
+      post.views += 1;
+    }
 
     const c = ctx(req, '');
     const comments = q.commentsFor.all(post.id);
