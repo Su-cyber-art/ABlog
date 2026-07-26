@@ -1,0 +1,14 @@
+{
+  "name": "mo-blog",
+  "version": "1.0.0",
+  "description": "默·博客 — 一册记录日常的随笔(古典风格博客系统,零依赖,Node 内置模块实现)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {}
+}
