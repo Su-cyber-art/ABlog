@@ -19,6 +19,7 @@ function login(ctx, d) {
       </div>
       <button class="btn btn-primary btn-block" type="submit">进入后台</button>
       ${d.failed ? '<p class="login-failed">密码不对，再试一次。</p>' : ''}
+      ${d.blocked ? '<p class="login-failed">尝试次数过多，请 15 分钟后再试。</p>' : ''}
     </form>
 
     <div class="login-back"><a href="/">← 返回前台</a></div>

@@ -1,7 +1,11 @@
 /* 默·博客 — 后台路由(登录/仪表盘/文章/写作/分类标签/评论/设置) */
 'use strict';
+const crypto = require('crypto');
 const { q, tx, getSetting, setSetting, siteSettings, seedAll, parseTags } = require('../lib/db');
-const { hashPassword, verifyPassword, makeToken, SESSION_DAYS } = require('../lib/auth');
+const {
+  hashPassword, verifyPassword, makeToken, SESSION_DAYS,
+  clientIp, loginBlocked, recordLoginFail, clearLoginFails
+} = require('../lib/auth');
 const { mdToHtml } = require('../lib/md');
 const { ADMIN_PATH, adminUrl } = require('../lib/config');
 const view = require('../views/admin');
@@ -33,15 +37,22 @@ function register(app) {
   /* ── 登录/登出 ── */
   app.get(adminUrl('/login'), (req, res) => {
     if (req.isAdmin) return res.redirect(ADMIN_PATH);
-    res.html(view.login(ctx(req), { failed: req.query.failed === '1' }));
+    res.html(view.login(ctx(req), {
+      failed: req.query.failed === '1',
+      blocked: req.query.blocked === '1'
+    }));
   });
 
   app.post(adminUrl('/login'), async (req, res) => {
+    const ip = clientIp(req);
+    if (loginBlocked(ip)) return res.redirect(adminUrl('/login?blocked=1'));
     const ok = verifyPassword(String(req.body.password || ''), getSetting('admin_pass', ''));
     if (!ok) {
+      recordLoginFail(ip);
       await new Promise(r => setTimeout(r, 600)); // 失败稍作延迟
-      return res.redirect(adminUrl('/login?failed=1'));
+      return res.redirect(adminUrl(loginBlocked(ip) ? '/login?blocked=1' : '/login?failed=1'));
     }
+    clearLoginFails(ip);
     const token = makeToken(getSetting('session_secret', ''));
     res.setHeader('Set-Cookie',
       `mo_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 3600}`);
@@ -249,7 +260,16 @@ function register(app) {
     setSetting('perPage', Math.min(20, Math.max(1, parseInt(req.body.perPage, 10) || 5)));
     const pw = String(req.body.newPassword || '');
     let suffix = '';
-    if (pw.trim()) { setSetting('admin_pass', hashPassword(pw.trim())); suffix = '&pw=1'; }
+    if (pw.trim()) {
+      setSetting('admin_pass', hashPassword(pw.trim()));
+      // 轮换会话密钥:所有已发放的登录态立即失效(防旧 cookie 残留)
+      setSetting('session_secret', crypto.randomBytes(32).toString('hex'));
+      // 给当前这台设备重新签发会话,改密后无需重新登录
+      const token = makeToken(getSetting('session_secret', ''));
+      res.setHeader('Set-Cookie',
+        `mo_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 3600}`);
+      suffix = '&pw=1';
+    }
     res.redirect(adminUrl('/settings?saved=1' + suffix));
   }));
 
