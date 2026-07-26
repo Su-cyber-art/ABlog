@@ -47,6 +47,13 @@ function home(ctx, d) {
 
     <aside class="rail">
       <section>
+        <h6 class="rail-h">搜索</h6>
+        <form class="sub-row" method="get" action="/search">
+          <input class="input" type="search" name="q" placeholder="搜索随笔……" maxlength="80">
+          <button class="btn btn-primary" type="submit">搜索</button>
+        </form>
+      </section>
+      <section>
         <h6 class="rail-h">分类</h6>
         <div class="rail-cats">${cats}
         </div>
@@ -187,6 +194,38 @@ function about(ctx, d) {
 ` + frontFooter(ctx);
 }
 
+/** 搜索结果 */
+function search(ctx, d) {
+  const summary = d.kw
+    ? `「${esc(d.kw)}」· 共 ${d.results.length} 篇`
+    : '输入关键词,在全部已发布的随笔中查找';
+
+  const rows = d.results.map(it => `
+        <a class="ag-item" href="/post/${it.id}">
+          <span class="ag-date">${esc(it.date)}</span>
+          <span class="ag-title">${esc(it.title)}</span>
+          <span class="ag-cat">${esc(it.cat)}</span>
+        </a>`).join('');
+
+  const body = d.kw
+    ? (d.results.length
+      ? `\n    <section class="search-results">${rows}\n    </section>`
+      : `\n    <p class="no-comments" style="text-align:center;margin-top:26px">没有找到与「${esc(d.kw)}」相关的文章。</p>`)
+    : '';
+
+  return head(ctx, '搜索') + frontHeader(ctx) + `
+  <div class="archive">
+    <h1 class="archive-title">搜索</h1>
+    <p class="archive-summary">${summary}</p>
+
+    <form class="search-row" method="get" action="/search">
+      <input class="input" type="search" name="q" value="${esc(d.kw)}" placeholder="搜索随笔……" maxlength="80" autofocus>
+      <button class="btn btn-primary" type="submit">搜索</button>
+    </form>${body}
+  </div>
+` + frontFooter(ctx);
+}
+
 /** 404 */
 function notFound(ctx) {
   return head(ctx, '页面不存在') + frontHeader(ctx) + `
@@ -200,4 +239,4 @@ function notFound(ctx) {
 ` + frontFooter(ctx);
 }
 
-module.exports = { home, article, archive, about, notFound };
+module.exports = { home, article, archive, about, search, notFound };

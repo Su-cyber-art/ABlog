@@ -122,6 +122,23 @@ function register(app) {
     }));
   });
 
+  /* ── 搜索 ── */
+  app.get('/search', (req, res) => {
+    const c = ctx(req, '');
+    const kw = String(req.query.q || '').trim().slice(0, 80);
+    let results = [];
+    if (kw) {
+      const like = '%' + kw.replace(/[\\%_]/g, ch => '\\' + ch) + '%';
+      results = q.searchPosts.all(like).map(p => ({
+        id: p.id,
+        date: p.date.slice(5).replace('-', ' / '),
+        title: p.title,
+        cat: p.cat
+      }));
+    }
+    res.html(view.search(c, { kw, results }));
+  });
+
   /* ── 关于 ── */
   app.get('/about', (req, res) => {
     let portrait = null;

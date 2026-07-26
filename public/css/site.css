@@ -305,6 +305,12 @@ select.input { appearance: auto; }
   padding-bottom: 26px; border-bottom: 1px solid var(--color-divider);
 }
 .archive-chips a { cursor: pointer; text-decoration: none; }
+
+/* 搜索 */
+.search-row { display: flex; gap: 8px; max-width: 430px; margin: 0 auto; padding-bottom: 26px; border-bottom: 1px solid var(--color-divider); }
+.search-row .btn { flex: none; }
+.search-results { padding-top: 10px; }
+.rail .sub-row input[type="search"] { min-height: 34px; }
 .archive-group {
   display: grid; grid-template-columns: 120px 1fr; gap: 28px;
   padding: 34px 0 10px; border-bottom: 1px solid var(--color-divider);
