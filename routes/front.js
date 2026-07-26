@@ -10,6 +10,11 @@ const SHOW_VIEWS = true; // 设计稿 props.showViews 默认值
 
 function today() { return new Date().toISOString().slice(0, 10); }
 
+/** 站点对外基地址(优先 SITE_URL 环境变量) */
+function baseUrl(req) {
+  return (process.env.SITE_URL || ('http://' + (req.headers.host || 'localhost'))).replace(/\/$/, '');
+}
+
 /** 各页共用的模板上下文 */
 function ctx(req, nav) {
   return { s: siteSettings(), year: String(new Date().getFullYear()), nav: nav || '', isAdmin: req.isAdmin };
@@ -172,10 +177,11 @@ function register(app) {
     res.redirect('/?subscribed=1#subscribe');
   });
 
-  /* ── RSS ── */
+  /* ── RSS(含全文) ── */
   app.get('/feed.xml', (req, res) => {
     const s = siteSettings();
-    const base = (process.env.SITE_URL || ('http://' + (req.headers.host || 'localhost'))).replace(/\/$/, '');
+    const base = baseUrl(req);
+    const cdata = html => '<![CDATA[' + String(html).replace(/\]\]>/g, ']]]]><![CDATA[>') + ']]>';
     const items = q.publishedPosts.all().slice(0, 20).map(p => `
   <item>
     <title>${esc(p.title)}</title>
@@ -184,9 +190,10 @@ function register(app) {
     <pubDate>${new Date(p.date + 'T00:00:00+08:00').toUTCString()}</pubDate>
     <category>${esc(p.cat)}</category>
     <description>${esc(excerptOf(p))}</description>
+    <content:encoded>${cdata(mdToHtml(p.content))}</content:encoded>
   </item>`).join('');
     res.text(`<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
 <channel>
   <title>${esc(s.title)}</title>
   <link>${base}</link>
@@ -194,6 +201,22 @@ function register(app) {
   <language>zh-cn</language>${items}
 </channel>
 </rss>`, 200, 'application/rss+xml; charset=utf-8');
+  });
+
+  /* ── robots.txt 与站点地图 ── */
+  app.get('/robots.txt', (req, res) => {
+    res.text(`User-agent: *\nAllow: /\nSitemap: ${baseUrl(req)}/sitemap.xml\n`);
+  });
+
+  app.get('/sitemap.xml', (req, res) => {
+    const base = baseUrl(req);
+    const stat = ['', '/archive', '/about'].map(p => `
+  <url><loc>${base}${p}</loc></url>`).join('');
+    const posts = q.publishedPosts.all().map(p => `
+  <url><loc>${base}/post/${p.id}</loc><lastmod>${p.date}</lastmod></url>`).join('');
+    res.text(`<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${stat}${posts}
+</urlset>`, 200, 'application/xml; charset=utf-8');
   });
 }
 
