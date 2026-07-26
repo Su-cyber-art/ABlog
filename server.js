@@ -1,6 +1,7 @@
 /* 默·博客 — 服务入口(零依赖:Node 内置 http + node:sqlite) */
 'use strict';
 const path = require('path');
+const { ADMIN_PATH } = require('./lib/config');
 const { App } = require('./lib/http');
 const { getSetting, siteSettings } = require('./lib/db');
 const { checkToken } = require('./lib/auth');
@@ -35,5 +36,5 @@ app.notFound((req, res) => {
 const PORT = Number(process.env.PORT) || 3000;
 app.listen(PORT, () => {
   console.log(`[默·博客] 前台  http://localhost:${PORT}`);
-  console.log(`[默·博客] 后台  http://localhost:${PORT}/admin`);
+  console.log(`[默·博客] 后台  http://localhost:${PORT}${ADMIN_PATH}`);
 });

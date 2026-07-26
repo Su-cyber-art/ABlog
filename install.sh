@@ -17,6 +17,10 @@ TEMP_DIR=""
 OLD_RELEASE=""
 NEW_RELEASE=""
 GENERATED_PASSWORD=""
+CONFIG_PORT=""
+CONFIG_SITE_URL=""
+CONFIG_ADMIN_PATH=""
+CONFIG_ADMIN_PASSWORD=""
 
 log() {
   printf '[ABlog] %s\n' "$*"
@@ -47,6 +51,127 @@ require_commands() {
     sha256sum systemctl tar tr useradd; do
     command -v "${command_name}" >/dev/null 2>&1 || die "缺少命令: ${command_name}"
   done
+}
+
+can_prompt() {
+  [[ "${ABLOG_NONINTERACTIVE:-0}" != "1" && -r /dev/tty && -w /dev/tty ]]
+}
+
+prompt_default() {
+  local result_var label default_value input
+  result_var="$1"
+  label="$2"
+  default_value="$3"
+
+  printf '  %s [%s]: ' "${label}" "${default_value}" >/dev/tty
+  IFS= read -r input </dev/tty
+  printf -v "${result_var}" '%s' "${input:-${default_value}}"
+}
+
+prompt_password() {
+  local first second
+
+  while true; do
+    printf '  后台初始密码（至少 8 位）: ' >/dev/tty
+    IFS= read -r -s first </dev/tty
+    printf '\n' >/dev/tty
+    if ((${#first} < 8)); then
+      printf '  密码至少需要 8 位，请重新输入。\n' >/dev/tty
+      continue
+    fi
+
+    printf '  再次确认密码: ' >/dev/tty
+    IFS= read -r -s second </dev/tty
+    printf '\n' >/dev/tty
+    if [[ "${first}" != "${second}" ]]; then
+      printf '  两次密码不一致，请重新输入。\n' >/dev/tty
+      continue
+    fi
+
+    CONFIG_ADMIN_PASSWORD="${first}"
+    return
+  done
+}
+
+normalize_admin_path() {
+  local value lower
+  value="${1:-/admin}"
+  [[ "${value}" == /* ]] || value="/${value}"
+  while [[ "${value}" == */ && "${value}" != "/" ]]; do
+    value="${value%/}"
+  done
+
+  [[ "${value}" =~ ^/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || return 1
+  lower="${value,,}"
+  case "${lower}" in
+    /about|/archive|/css|/favicon|/fonts|/js|/post|/subscribe)
+      return 1
+      ;;
+  esac
+  printf '%s' "${value}"
+}
+
+validate_config() {
+  [[ "${CONFIG_PORT}" =~ ^[0-9]+$ ]] || die "PORT 必须是数字"
+  ((CONFIG_PORT >= 1024 && CONFIG_PORT <= 65535)) ||
+    die "PORT 必须在 1024 到 65535 之间"
+
+  CONFIG_ADMIN_PATH="$(normalize_admin_path "${CONFIG_ADMIN_PATH}")" ||
+    die "ADMIN_PATH 必须是安全的单段路径，例如 /admin 或 /manage_7f3a"
+
+  if [[ -n "${CONFIG_SITE_URL}" ]]; then
+    [[ "${CONFIG_SITE_URL}" =~ ^https?://[^[:space:]]+$ ]] ||
+      die "SITE_URL 必须以 http:// 或 https:// 开头"
+    CONFIG_SITE_URL="${CONFIG_SITE_URL%/}"
+  fi
+
+  [[ "${CONFIG_ADMIN_PASSWORD}" != *$'\n'* && "${CONFIG_ADMIN_PASSWORD}" != *$'\r'* ]] ||
+    die "ADMIN_PASSWORD 不能包含换行符"
+  ((${#CONFIG_ADMIN_PASSWORD} >= 8)) || die "ADMIN_PASSWORD 至少需要 8 位"
+}
+
+collect_initial_config() {
+  local confirm
+
+  if [[ -f "${ENV_FILE}" ]]; then
+    log "检测到现有配置，升级时保持 ${ENV_FILE} 不变"
+    return
+  fi
+
+  CONFIG_PORT="${PORT:-3000}"
+  CONFIG_SITE_URL="${SITE_URL:-}"
+  CONFIG_ADMIN_PATH="${ADMIN_PATH:-/admin}"
+  CONFIG_ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
+
+  if can_prompt; then
+    printf '\nABlog 首次安装配置\n\n' >/dev/tty
+    prompt_default CONFIG_PORT "监听端口" "${CONFIG_PORT}"
+    prompt_default CONFIG_ADMIN_PATH "后台路径" "${CONFIG_ADMIN_PATH}"
+    prompt_default CONFIG_SITE_URL "站点公网地址（可留空）" "${CONFIG_SITE_URL}"
+    if [[ -z "${CONFIG_ADMIN_PASSWORD}" ]]; then
+      prompt_password
+    fi
+    validate_config
+
+    printf '\n  端口: %s\n' "${CONFIG_PORT}" >/dev/tty
+    printf '  后台路径: %s\n' "${CONFIG_ADMIN_PATH}" >/dev/tty
+    printf '  公网地址: %s\n' "${CONFIG_SITE_URL:-未设置}" >/dev/tty
+    printf '  后台密码: 已设置\n\n' >/dev/tty
+    printf '  确认安装？[Y/n]: ' >/dev/tty
+    IFS= read -r confirm </dev/tty
+    case "${confirm}" in
+      n|N|no|NO|No)
+        log "已取消安装"
+        exit 0
+        ;;
+    esac
+  else
+    if [[ -z "${CONFIG_ADMIN_PASSWORD}" ]]; then
+      CONFIG_ADMIN_PASSWORD="$(od -An -N18 -tx1 /dev/urandom | tr -d ' \n')"
+      GENERATED_PASSWORD="${CONFIG_ADMIN_PASSWORD}"
+    fi
+    validate_config
+  fi
 }
 
 detect_arch() {
@@ -147,8 +272,15 @@ write_env_value() {
   printf '%s="%s"\n' "${name}" "${value}"
 }
 
+read_env_value() {
+  local name fallback value
+  name="$1"
+  fallback="$2"
+  value="$(awk -F= -v key="${name}" '$1 == key { gsub(/^"|"$/, "", $2); print $2; exit }' "${ENV_FILE}")"
+  printf '%s' "${value:-${fallback}}"
+}
+
 write_initial_config() {
-  local port site_url admin_password
   install -d -m 0755 "${CONFIG_DIR}"
 
   if [[ -f "${ENV_FILE}" ]]; then
@@ -156,24 +288,12 @@ write_initial_config() {
     return
   fi
 
-  port="${PORT:-3000}"
-  [[ "${port}" =~ ^[0-9]+$ ]] || die "PORT 必须是数字"
-  ((port >= 1024 && port <= 65535)) || die "PORT 必须在 1024 到 65535 之间"
-
-  site_url="${SITE_URL:-}"
-  admin_password="${ADMIN_PASSWORD:-}"
-  if [[ -z "${admin_password}" ]]; then
-    admin_password="$(od -An -N18 -tx1 /dev/urandom | tr -d ' \n')"
-    GENERATED_PASSWORD="${admin_password}"
-  fi
-  [[ "${admin_password}" != *$'\n'* && "${admin_password}" != *$'\r'* ]] ||
-    die "ADMIN_PASSWORD 不能包含换行符"
-
   umask 077
   {
-    write_env_value "PORT" "${port}"
-    write_env_value "SITE_URL" "${site_url}"
-    write_env_value "ADMIN_PASSWORD" "${admin_password}"
+    write_env_value "PORT" "${CONFIG_PORT}"
+    write_env_value "SITE_URL" "${CONFIG_SITE_URL}"
+    write_env_value "ADMIN_PASSWORD" "${CONFIG_ADMIN_PASSWORD}"
+    write_env_value "ADMIN_PATH" "${CONFIG_ADMIN_PATH}"
     write_env_value "ABLOG_DATA_DIR" "${DATA_DIR}"
   } >"${ENV_FILE}"
   chmod 0600 "${ENV_FILE}"
@@ -240,8 +360,7 @@ rollback_release() {
 
 start_service() {
   local port attempt
-  port="$(awk -F= '$1 == "PORT" { gsub(/^"|"$/, "", $2); print $2; exit }' "${ENV_FILE}")"
-  port="${port:-3000}"
+  port="$(read_env_value "PORT" "3000")"
 
   systemctl daemon-reload
   systemctl enable ablog.service >/dev/null
@@ -264,13 +383,13 @@ start_service() {
 }
 
 print_result() {
-  local port
-  port="$(awk -F= '$1 == "PORT" { gsub(/^"|"$/, "", $2); print $2; exit }' "${ENV_FILE}")"
-  port="${port:-3000}"
+  local port admin_path
+  port="$(read_env_value "PORT" "3000")"
+  admin_path="$(read_env_value "ADMIN_PATH" "/admin")"
 
   log "部署完成"
   printf '  访问地址: http://服务器IP:%s\n' "${port}"
-  printf '  管理后台: http://服务器IP:%s/admin\n' "${port}"
+  printf '  管理后台: http://服务器IP:%s%s\n' "${port}" "${admin_path}"
   printf '  配置文件: %s\n' "${ENV_FILE}"
   printf '  数据目录: %s\n' "${DATA_DIR}"
   if [[ -n "${GENERATED_PASSWORD}" ]]; then
@@ -282,6 +401,7 @@ print_result() {
 main() {
   require_root
   require_commands
+  collect_initial_config
   download_release
   ensure_service_account
   write_initial_config
@@ -291,4 +411,6 @@ main() {
   print_result
 }
 
-main "$@"
+if [[ -z "${BASH_SOURCE[0]:-}" || "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

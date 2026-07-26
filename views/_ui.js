@@ -1,5 +1,6 @@
 /* 默·博客 — 共享视图片段(纯模板函数,无模板引擎) */
 'use strict';
+const { ADMIN_PATH, adminUrl } = require('../lib/config');
 
 /** HTML 转义 */
 function esc(s) {
@@ -42,7 +43,7 @@ function frontHeader(ctx) {
       <a href="/archive"${act('archive')}>归档</a>
       <a href="/about"${act('about')}>关于</a>
       <span class="nav-sep"></span>
-      <a href="/admin" class="nav-admin">后台 →</a>
+      <a href="${ADMIN_PATH}" class="nav-admin">后台 →</a>
     </nav>
   </header>
 `;
@@ -56,7 +57,7 @@ function frontFooter(ctx) {
     <span>© ${esc(year)} ${esc(s.title)} · ${esc(s.footer)}</span>
     <span class="spacer"></span>
     <a href="/feed.xml">RSS</a>
-    <a href="/admin">后台管理</a>
+    <a href="${ADMIN_PATH}">后台管理</a>
   </footer>
 
 </div>
@@ -91,12 +92,12 @@ function adminTop(ctx, view, pageTitle) {
       <div class="admin-brand-sub">写作与管理</div>
     </div>
 
-    ${item('dash', '/admin', 'dash', '仪表盘')}
-    ${item('posts', '/admin/posts', 'posts', '文章管理')}
-    ${item('editor', '/admin/editor', 'editor', '写作')}
-    ${item('tax', '/admin/taxonomy', 'tax', '分类与标签')}
-    ${item('comments', '/admin/comments', 'comments', '评论管理', badge)}
-    ${item('settings', '/admin/settings', 'settings', '站点设置')}
+    ${item('dash', ADMIN_PATH, 'dash', '仪表盘')}
+    ${item('posts', adminUrl('/posts'), 'posts', '文章管理')}
+    ${item('editor', adminUrl('/editor'), 'editor', '写作')}
+    ${item('tax', adminUrl('/taxonomy'), 'tax', '分类与标签')}
+    ${item('comments', adminUrl('/comments'), 'comments', '评论管理', badge)}
+    ${item('settings', adminUrl('/settings'), 'settings', '站点设置')}
 
     <div class="admin-side-foot">
       <a href="/">← 查看前台</a>

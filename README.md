@@ -12,14 +12,21 @@
 curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh | sudo bash
 ```
 
-建议在首次部署时同时设置后台密码和公网地址:
+首次安装会交互询问监听端口、后台路径、公网地址和后台密码。密码输入不会回显;再次执行同一命令升级时会保留 `/etc/ablog/ablog.env` 和现有博客数据。
+
+无人值守部署可通过环境变量传入全部配置:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh \
-  | sudo env ADMIN_PASSWORD='换成强密码' SITE_URL='https://blog.example.com' bash
+  | sudo env ABLOG_NONINTERACTIVE=1 \
+      PORT=3000 \
+      ADMIN_PATH='/manage_7f3a' \
+      ADMIN_PASSWORD='换成至少8位的强密码' \
+      SITE_URL='https://blog.example.com' \
+      bash
 ```
 
-未传 `ADMIN_PASSWORD` 时安装器会生成随机密码并在完成时显示。再次执行同一命令即可升级,文章和配置不会被覆盖。
+无人值守模式未传 `ADMIN_PASSWORD` 时会自动生成随机密码并在完成时显示。`ADMIN_PATH` 只能是安全的单段路径,例如 `/admin` 或 `/manage_7f3a`;自定义路径不能替代强密码。
 
 - 服务状态:`sudo systemctl status ablog`
 - 实时日志:`sudo journalctl -u ablog -f`
@@ -71,6 +78,7 @@ Ablog/
 ├── scripts/
 │   └── build-linux-bundle.sh  Linux 发布包构建与校验
 ├── lib/
+│   ├── config.js      运行配置与后台 URL
 │   ├── http.js        极简路由/静态文件框架
 │   ├── db.js          node:sqlite 数据层 + 示例数据
 │   ├── auth.js        密码哈希(scrypt)与会话签名(HMAC)
@@ -87,6 +95,7 @@ Ablog/
 ## 常见操作
 
 - **换端口**:`set PORT=8080 && node server.js`(PowerShell:`$env:PORT=8080; node server.js`)
+- **换后台路径**:`ADMIN_PATH=/manage_7f3a node server.js`(PowerShell:`$env:ADMIN_PATH='/manage_7f3a'; node server.js`)
 - **备份**:复制 `data/blog.db` 即可(建议顺带备份 `public/portrait.jpg`)
 - **重置一切**:删除 `data/` 文件夹后重启(密码也会重置为 `mo-admin`)
 - **忘记密码**:删除 `data/` 文件夹重启(会连数据一起重置,先备份 `blog.db`;或用 SQLite 工具删掉 `settings` 表里 `admin_pass` 那行再重启)
@@ -96,7 +105,7 @@ Ablog/
 
 Linux 服务器推荐使用上方的二进制一键部署。手动部署时,任何能跑 Node ≥22.5 的主机都可以:`node server.js` 即可,数据默认在 `data/blog.db`;可通过 `ABLOG_DATA_DIR` 指定独立数据目录。
 建议前面加一层 Nginx/Caddy 做 HTTPS,并设置环境变量 `SITE_URL=https://你的域名`(用于 RSS 链接)。
-首次部署前用环境变量设置强密码:`ADMIN_PASSWORD=你的密码 node server.js`(仅首次初始化时生效)。
+首次部署前可同时设置强密码和后台路径:`ADMIN_PASSWORD=你的密码 ADMIN_PATH=/manage_7f3a node server.js`。密码仅在数据库首次初始化时生效;后台路径每次启动都从环境变量读取。
 
 维护者推送 `v*` 标签后,GitHub Actions 会自动生成 Linux x64/ARM64 二进制包和 SHA-256 校验文件:
 
