@@ -5,7 +5,7 @@ const assert = require('node:assert');
 const { startServer, request } = require('./helpers');
 
 let srv;
-before(async () => { srv = startServer(); await srv.ready; });
+before(async () => { srv = await startServer(); await srv.ready; });
 after(() => srv.stop());
 
 test('首页渲染并含示例文章', async () => {

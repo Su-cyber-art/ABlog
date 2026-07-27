@@ -6,7 +6,7 @@ const assert = require('node:assert');
 const { startServer, request, login } = require('./helpers');
 
 let srv;
-beforeEach(async () => { srv = startServer(); await srv.ready; });
+beforeEach(async () => { srv = await startServer(); await srv.ready; });
 afterEach(() => srv.stop());
 
 test('未登录访问后台跳转登录页', async () => {

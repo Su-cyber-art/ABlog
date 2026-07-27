@@ -5,12 +5,25 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 
+/** 交给系统选择可绑定端口，避开 Windows 动态排除端口段 */
+function availablePort() {
+  return new Promise((resolve, reject) => {
+    const probe = http.createServer();
+    probe.unref();
+    probe.on('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address();
+      probe.close(err => err ? reject(err) : resolve(port));
+    });
+  });
+}
+
 /** 用干净的临时数据目录启动应用(需在 require 应用前设好环境变量) */
-function startServer(env = {}) {
+async function startServer(env = {}) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ablog-test-'));
   // 每个实例独立进程级模块缓存不可行,故用子进程隔离
   const { spawn } = require('child_process');
-  const port = 20000 + Math.floor((process.pid + Date.now()) % 40000);
+  const port = await availablePort();
   const child = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
     env: {
       ...process.env,
