@@ -180,7 +180,7 @@ ${groups}
 function about(ctx, d) {
   const slot = d.portrait
     ? `<img src="${esc(d.portrait)}" alt="作者照片">`
-    : '<div class="portrait-empty">作者照片 · 把 portrait.jpg 放进 public 文件夹</div>';
+    : '<div class="portrait-empty">作者照片可在后台「站点设置」上传</div>';
   return head(ctx, '关于') + frontHeader(ctx) + `
   <div class="about">
     <h1 class="about-title">关于</h1>

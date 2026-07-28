@@ -1,8 +1,8 @@
 /* 默·博客 — 服务入口(零依赖:Node 内置 http + node:sqlite) */
 'use strict';
+const { ADMIN_PATH } = require('./lib/config');
 const { buildApp } = require('./lib/app');
 const { db } = require('./lib/db');
-const { ADMIN_PATH } = require('./lib/config');
 
 const PORT = Number(process.env.PORT) || 3000;
 const HOST = process.env.HOST || '0.0.0.0';

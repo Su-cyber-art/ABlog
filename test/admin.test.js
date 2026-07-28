@@ -3,7 +3,7 @@
 'use strict';
 const { test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
-const { startServer, request, login } = require('./helpers');
+const { startServer, request, multipart, login } = require('./helpers');
 
 let srv;
 beforeEach(async () => { srv = await startServer(); await srv.ready; });
@@ -104,11 +104,89 @@ test('订阅者管理与 CSV 导出', async () => {
   assert.match(csv.body, /csv@test\.cn/);
 });
 
+test('访客管理展示最后 IP 和本地网络归属', async () => {
+  const denied = await request(srv.base, 'GET', '/admin/visitors');
+  assert.equal(denied.status, 302);
+  assert.match(denied.location, /\/admin\/login/);
+
+  await request(srv.base, 'GET', '/about');
+  const cookies = await login(srv.base);
+  const page = await request(srv.base, 'GET', '/admin/visitors', { cookies });
+  assert.equal(page.status, 200);
+  assert.match(page.body, /访客管理/);
+  assert.match(page.body, /127\.0\.0\.1/);
+  assert.match(page.body, /本地网络/);
+  assert.match(page.body, /🏠/);
+});
+
+test('可信代理国家头显示归属地和旗帜', async () => {
+  const trusted = await startServer({ TRUST_PROXY: '1', VISITOR_COUNTRY_HEADER: 'cf-ipcountry' });
+  try {
+    await trusted.ready;
+    await request(trusted.base, 'GET', '/about', {
+      headers: { 'X-Forwarded-For': '203.0.113.9', 'CF-IPCountry': 'JP' }
+    });
+    const cookies = await login(trusted.base);
+    const page = await request(trusted.base, 'GET', '/admin/visitors', { cookies });
+    assert.match(page.body, /日本/);
+    assert.match(page.body, /🇯🇵/);
+  } finally {
+    trusted.stop();
+  }
+});
+
+test('自定义后台路径可访问，旧 /admin 不暴露后台', async () => {
+  const custom = await startServer({ ADMIN_PATH: '/manage_7f3a' });
+  try {
+    await custom.ready;
+    const cookies = await login(custom.base, 'test-pass-123', '/manage_7f3a');
+    const visitors = await request(custom.base, 'GET', '/manage_7f3a/visitors', { cookies });
+    assert.equal(visitors.status, 200);
+    const oldPath = await request(custom.base, 'GET', '/admin');
+    assert.equal(oldPath.status, 404);
+  } finally {
+    custom.stop();
+  }
+});
+
+test('设置页可上传关于页照片，拒绝伪造图片', async () => {
+  const cookies = await login(srv.base);
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL9KgAAAABJRU5ErkJggg==', 'base64');
+  const upload = multipart({ title: '默', subtitle: 's', author: '默', footer: 'f', perPage: '5' }, [{
+    name: 'portrait', filename: 'portrait.png', contentType: 'image/png', data: png
+  }]);
+  const saved = await request(srv.base, 'POST', '/admin/settings', {
+    cookies,
+    body: upload.body,
+    headers: { 'Content-Type': upload.contentType }
+  });
+  assert.match(saved.location, /saved=1/);
+  const about = await request(srv.base, 'GET', '/about');
+  assert.match(about.body, /\/uploads\/portrait\.png/);
+  const image = await request(srv.base, 'GET', '/uploads/portrait.png');
+  assert.match(image.headers['content-type'], /image\/png/);
+
+  const bad = multipart({ title: '默', subtitle: 's', author: '默', footer: 'f', perPage: '5' }, [{
+    name: 'portrait', filename: 'not-image.png', contentType: 'image/png',
+    data: Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(20)])
+  }]);
+  const rejected = await request(srv.base, 'POST', '/admin/settings', {
+    cookies,
+    body: bad.body,
+    headers: { 'Content-Type': bad.contentType }
+  });
+  assert.match(rejected.location, /photo=err/);
+});
+
 test('备份导出与导入恢复', async () => {
   const cookies = await login(srv.base);
+  const visitor = await request(srv.base, 'GET', '/post/1');
   const exp = await request(srv.base, 'GET', '/admin/export', { cookies });
   const data = JSON.parse(exp.body);
   assert.equal(data.app, 'mo-blog');
+  assert.equal(data.visitors, undefined);
+  assert.equal(data.posts[0].uniqueViews, undefined);
+  assert.doesNotMatch(exp.body, /127\.0\.0\.1/);
   const originalCount = data.posts.length;
   // 删一篇再导入恢复
   await request(srv.base, 'POST', '/admin/posts/1/delete', { cookies });
@@ -116,6 +194,9 @@ test('备份导出与导入恢复', async () => {
   assert.match(imp.location, /import=ok/);
   const exp2 = await request(srv.base, 'GET', '/admin/export', { cookies });
   assert.equal(JSON.parse(exp2.body).posts.length, originalCount);
+  // JSON 不携带文章去重基线，导入后同一 cookie 的第一次阅读从 1 重新计数，不能伪装成 2。
+  const afterImport = await request(srv.base, 'GET', '/post/1', { cookies: visitor.cookies });
+  assert.match(afterImport.body, /1 位独立访客/);
 });
 
 test('改密后旧会话失效、新密码可登录', async () => {

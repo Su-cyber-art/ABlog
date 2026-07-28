@@ -6,19 +6,28 @@
 
 ## Linux 二进制一键部署
 
-支持使用 systemd 的 x86_64/ARM64 Linux,无需预装 Node.js。安装器会下载并校验最新 GitHub Release,创建独立服务用户,并把数据持久化到 `/var/lib/ablog`:
+支持使用 systemd 的 x86_64/ARM64 Linux,无需预装 Node.js。安装器会下载并校验最新 GitHub Release,创建独立服务用户,并把数据持久化到 `/var/lib/ablog`。默认进入交互式安装维护菜单:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh | sudo bash
 ```
 
-首次安装会交互询问监听端口、后台路径、公网地址和后台密码。密码输入不会回显;再次执行同一命令升级时会保留 `/etc/ablog/ablog.env` 和现有博客数据。
+菜单提供安装、升级、卸载、当前运行状态、当前版本和 GitHub 最新 Release 版本查看。首次显示菜单时会通过 HTTPS 查询一次最新版本；查询失败不会阻断安装或升级。首次安装会交互询问监听端口、后台路径、公网地址和后台密码，密码输入不会回显；升级会保留 `/etc/ablog/ablog.env` 与现有博客数据。卸载默认只停止服务并移除程序文件，保留数据、配置和服务账号；只有在二次确认后才会彻底删除它们。
 
-无人值守部署可通过环境变量传入全部配置:
+也可以在终端直接指定动作:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh | sudo bash -s -- install
+curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh | sudo bash -s -- upgrade
+curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh | sudo bash -s -- uninstall
+```
+
+无人值守模式可通过环境变量传入动作与配置。未设置 `ABLOG_ACTION` 时会自动选择首次安装或升级:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh \
   | sudo env ABLOG_NONINTERACTIVE=1 \
+      ABLOG_ACTION=install \
       PORT=3000 \
       ADMIN_PATH='/manage_7f3a' \
       ADMIN_PASSWORD='换成至少8位的强密码' \
@@ -26,7 +35,18 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
       bash
 ```
 
-无人值守模式未传 `ADMIN_PASSWORD` 时会自动生成随机密码并在完成时显示。`ADMIN_PATH` 只能是安全的单段路径,例如 `/admin` 或 `/manage_7f3a`;自定义路径不能替代强密码。
+无人值守模式未传 `ADMIN_PASSWORD` 时会自动生成随机密码并在完成时显示。无人值守卸载必须额外显式确认，彻底清除数据、配置和服务账号时再加上 `ABLOG_PURGE_DATA=1`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh \
+  | sudo env ABLOG_NONINTERACTIVE=1 \
+      ABLOG_ACTION=uninstall \
+      ABLOG_CONFIRM_UNINSTALL=1 \
+      ABLOG_PURGE_DATA=1 \
+      bash
+```
+
+`ADMIN_PATH` 只能是安全的单段路径,例如 `/admin` 或 `/manage_7f3a`;自定义路径不能替代强密码。
 
 - 服务状态:`sudo systemctl status ablog`
 - 实时日志:`sudo journalctl -u ablog -f`
@@ -51,22 +71,23 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 
 **前台**
 
-- 首页:文章列表(分类·日期、摘要、阅读/评论数)、分页、搜索/分类/标签/订阅侧栏
-- 文章页:Markdown 正文、可点击标签、上一篇/下一篇导航、评论区、访客留言(提交后进入待审)
+- 首页:文章列表(分类·日期、摘要、阅读/独立访客/评论数)、分页、搜索/分类/标签/订阅侧栏
+- 文章页:Markdown 正文、可点击标签、上一篇/下一篇导航、评论区、访客留言(提交后进入待审);原始阅读次数与独立访客数分开统计
 - 归档:按年份分组,支持分类与标签两种筛选
 - 全文搜索:`/search`,匹配标题/正文/标签(仅已发布)
-- 关于:作者照片位 + 自述(把 `portrait.jpg` 放进 `public/` 即显示照片)
+- 关于:作者照片位 + 自述;照片可在后台「站点设置」上传,持久化到数据目录
 - RSS 全文输出:`/feed.xml`(含 `content:encoded`);`sitemap.xml`、`robots.txt` SEO 三件套;移动端为响应式版式
 
 **后台**(密码登录)
 
-- 仪表盘:已发布/草稿/待审评论/总阅读统计、最近文章、待审评论快捷处理
+- 仪表盘:已发布/草稿/待审评论/总阅读/独立访客统计、最近文章、待审评论快捷处理
 - 文章管理:全部/已发布/草稿筛选,查看/编辑/删除
 - 写作:Markdown 双栏实时预览编辑器,支持 `# 标题`、`**粗体**`、`*斜体*`、`> 引用`、`- 列表`、`--- 分隔线`、`` `代码` ``、` ``` ` 围栏代码块、`![图片](url)`、`[链接](url)`;字数统计、存草稿/发布;**离开页面自动暂存,防止丢稿**
 - 分类与标签:增删管理;使用中的分类不可删除;删除标签会同时清掉文章上的引用
 - 评论管理:待审/已通过/垃圾,通过/标垃圾/删除
 - 订阅者:名单查看、单条移除、一键导出 CSV
-- 站点设置:站点名称、副标题、作者署名、页脚文字、每页文章数、修改后台密码、**数据备份导出/导入**、恢复示例数据
+- 访客管理:独立访客列表、最后访问 IP、可信归属地与旗帜、访问次数、最后页面;支持单条或全部清理
+- 站点设置:站点名称、副标题、作者署名、页脚文字、每页文章数、关于页照片、修改后台密码、**数据备份导出/导入**、恢复示例数据
 
 **性能与安全**
 
@@ -75,14 +96,29 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 - 登录失败限速锁定、改密后其他设备会话立即失效、跨站 POST 拦截
 - `/healthz` 健康检查、SIGTERM 优雅退出
 
+### 访客统计与归属地
+
+独立访客使用签名的第一方 Cookie 识别浏览器,而不是按 IP 去重;同一浏览器重复阅读同一篇文章只计一次独立访客。清除 Cookie、无痕窗口或换设备会被视为新的匿名访客。系统不记录 User-Agent、来源页或完整浏览历史,仅保留最后一次 IP、最后页面、首次/最近访问时间和汇总次数;启动时与之后每 6 小时清理超过 90 天的记录。
+
+后台 JSON 导出不会携带 IP、匿名访客标识或文章去重基线。因此，用 JSON 导入内容后，文章的“独立访客”从 0 重新统计；站点级访客记录仍留在本机，直到其按保留期自动清理或在后台手动清空。需要完整迁移时，请在停服后整体备份数据目录。
+
+为了不把访客 IP 发送到第三方查询服务,国家/旗帜只读取**可信反向代理**提供的国家码。Cloudflare 可在 `/etc/ablog/ablog.env`（或启动环境）加入:
+
+```bash
+TRUST_PROXY=1
+VISITOR_COUNTRY_HEADER=cf-ipcountry
+```
+
+只有当反向代理会覆盖客户端传入的 `X-Forwarded-For` 和国家头时才应设置 `TRUST_PROXY=1`。未配置可信代理时,后台会显示“未知”;本机/内网访问显示本地网络。旗帜使用浏览器原生国旗字符,无需外部图片服务。
+
 ## 测试
 
 ```bash
 npm test        # 等价于 node --test,零依赖
 ```
 
-覆盖前台/后台/单元共 39 项:页面渲染、分页、草稿权限、搜索、归档筛选、评论审核、
-分类标签、订阅、备份恢复、登录限速、改密下线、Markdown 渲染与安全。CI 见 `.github/workflows/test.yml`。
+覆盖前台/后台/单元共 53 项:页面渲染、分页、草稿权限、搜索、归档筛选、评论审核、
+分类标签、订阅、独立访客、可信归属地、照片上传、安装器菜单、动作选择、最新版本校验与缓存、备份恢复、登录限速、改密下线、Markdown 渲染与安全。CI 见 `.github/workflows/test.yml`。
 
 ## 目录结构
 
@@ -100,6 +136,8 @@ Ablog/
 │   ├── http.js        极简路由/静态文件框架
 │   ├── db.js          node:sqlite 数据层 + 示例数据
 │   ├── auth.js        密码哈希(scrypt)与会话签名(HMAC)
+│   ├── visitors.js    匿名访客、文章去重阅读、可信代理归属地
+│   ├── media.js       数据目录图片上传与校验
 │   └── md.js          Markdown 渲染器(前后端共用,与设计稿一致)
 ├── lib/app.js        应用装配(路由/静态/中间件,可被测试直接加载)
 ├── routes/            前台/后台路由
@@ -116,7 +154,7 @@ Ablog/
 
 - **换端口**:`set PORT=8080 && node server.js`(PowerShell:`$env:PORT=8080; node server.js`)
 - **换后台路径**:`ADMIN_PATH=/manage_7f3a node server.js`(PowerShell:`$env:ADMIN_PATH='/manage_7f3a'; node server.js`)
-- **备份**:复制 `data/blog.db` 即可(建议顺带备份 `public/portrait.jpg`)
+- **备份**:运行中的 SQLite 使用 WAL，不能只复制 `blog.db`。优先用后台 JSON 导出内容；需要完整迁移时先停服务，再整体复制 `data/`（或 `ABLOG_DATA_DIR`）及其中的 `uploads/`，随后再启动服务。后台 JSON 不包含访客 IP、访客记录、密码和照片文件
 - **重置一切**:删除 `data/` 文件夹后重启(密码也会重置为 `mo-admin`)
 - **忘记密码**:删除 `data/` 文件夹重启(会连数据一起重置,先备份 `blog.db`;或用 SQLite 工具删掉 `settings` 表里 `admin_pass` 那行再重启)
 - **订阅邮箱**:访客提交的邮箱存在 `subscribers` 表里(系统不发信,导出后可自行群发)

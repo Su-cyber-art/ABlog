@@ -8,6 +8,8 @@ const {
 } = require('../lib/auth');
 const { mdToHtml } = require('../lib/md');
 const { ADMIN_PATH, adminUrl } = require('../lib/config');
+const { savePortrait, removePortrait } = require('../lib/media');
+const { countryFlag, VISITOR_RETENTION_DAYS } = require('../lib/visitors');
 const view = require('../views/admin');
 
 function today() { return new Date().toISOString().slice(0, 10); }
@@ -31,6 +33,11 @@ function guard(handler) {
 }
 
 function intId(s) { return /^\d+$/.test(s) ? Number(s) : null; }
+function visitorKey(s) { return /^[a-f0-9]{64}$/.test(String(s || '')) ? String(s) : ''; }
+function formatVisitTime(value) {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { hour12: false });
+}
 
 function register(app) {
 
@@ -69,12 +76,14 @@ function register(app) {
     const all = q.allPosts.all();
     const pub = all.filter(p => p.status === 'published');
     const c = ctx(req);
+    const visitorStats = q.visitorStats.get();
     res.html(view.dash(c, {
       todayLine: new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }),
       statPub: pub.length,
       statDraft: all.length - pub.length,
       statPending: c.pendingN,
       statViews: all.reduce((a, p) => a + (p.views || 0), 0).toLocaleString('en-US'),
+      statVisitors: Number(visitorStats.visitors || 0).toLocaleString('en-US'),
       recentPosts: all.slice(0, 5).map(p => ({ id: p.id, title: p.title, statusCls: statusCls(p), statusText: statusText(p), date: p.date })),
       pendingList: q.pendingComments.all().map(cm => {
         const p = q.postById.get(cm.post_id);
@@ -105,7 +114,7 @@ function register(app) {
 
   app.post(adminUrl('/posts/:id/delete'), guard((req, res) => {
     const id = intId(req.params.id);
-    if (id) tx(() => { q.deletePost.run(id); q.deletePostComments.run(id); });
+    if (id) tx(() => { q.deletePostVisitors.run(id); q.deletePost.run(id); q.deletePostComments.run(id); });
     res.redirect(adminUrl('/posts'));
   }));
 
@@ -260,17 +269,61 @@ function register(app) {
     res.download(csv, 'subscribers-' + today() + '.csv', 'text/csv; charset=utf-8');
   }));
 
+  /* ── 访客管理 ── */
+  app.get(adminUrl('/visitors'), guard((req, res) => {
+    const stats = q.visitorStats.get();
+    const rows = q.listVisitors.all(200).map(row => ({
+      key: row.visitor_key,
+      ip: row.last_ip || '未知',
+      flag: countryFlag(row.country_code),
+      location: row.country_name || (row.country_code === 'LOCAL' ? '本地网络' : '未知'),
+      locationDetail: [row.region, row.city].filter(Boolean).join(' · '),
+      firstSeen: formatVisitTime(row.first_seen),
+      lastSeen: formatVisitTime(row.last_seen),
+      pageViews: row.page_views || 0,
+      visits: row.visit_count || 0,
+      lastPath: row.last_path || '—'
+    }));
+    res.html(view.visitors(ctx(req), {
+      rows,
+      visitorCount: Number(stats.visitors || 0),
+      pageViews: Number(stats.page_views || 0),
+      retentionDays: VISITOR_RETENTION_DAYS,
+      cleared: req.query.cleared === '1'
+    }));
+  }));
+
+  app.post(adminUrl('/visitors/:key/delete'), guard((req, res) => {
+    const key = visitorKey(req.params.key);
+    if (key) tx(() => { q.deleteVisitorPostRows.run(key); q.deleteVisitor.run(key); });
+    res.redirect(adminUrl('/visitors'));
+  }));
+
+  app.post(adminUrl('/visitors/clear'), guard((req, res) => {
+    tx(() => { q.clearPostVisitors.run(); q.clearVisitors.run(); });
+    res.redirect(adminUrl('/visitors?cleared=1'));
+  }));
+
   /* ── 站点设置 ── */
   app.get(adminUrl('/settings'), guard((req, res) => {
     res.html(view.settings(ctx(req), {
       saved: req.query.saved === '1',
       reset: req.query.reset === '1',
       pwChanged: req.query.pw === '1',
-      importResult: ['ok', 'err'].includes(req.query.import) ? req.query.import : null
+      importResult: ['ok', 'err'].includes(req.query.import) ? req.query.import : null,
+      photoError: req.query.photo === 'err'
     }));
   }));
 
   app.post(adminUrl('/settings'), guard((req, res) => {
+    const portrait = (req.files || []).find(file => file.name === 'portrait');
+    try {
+      if (portrait) savePortrait(portrait);
+      else if (req.body.removePortrait === '1') removePortrait();
+    } catch (e) {
+      console.error('[默·博客] 照片上传失败:', e.message);
+      return res.redirect(adminUrl('/settings?photo=err'));
+    }
     setSetting('title', String(req.body.title || '默').slice(0, 60) || '默');
     setSetting('subtitle', String(req.body.subtitle || '').slice(0, 120));
     setSetting('author', String(req.body.author || '').slice(0, 40));
@@ -298,8 +351,9 @@ function register(app) {
 
   /* ── 数据备份:导出 / 导入 ── */
   app.get(adminUrl('/export'), guard((req, res) => {
+    const s = siteSettings();
     const data = {
-      app: 'mo-blog', schema: 1, exportedAt: new Date().toISOString(),
+      app: 'mo-blog', schema: 2, exportedAt: new Date().toISOString(),
       posts: q.allPosts.all().map(p => ({
         id: p.id, title: p.title, cat: p.cat, tags: parseTags(p),
         date: p.date, status: p.status, views: p.views, content: p.content
@@ -310,7 +364,11 @@ function register(app) {
       cats: q.cats.all().map(r => r.name),
       tags: q.tags.all().map(r => r.name),
       subscribers: q.listSubscribers.all().map(r => ({ email: r.email, date: r.date })),
-      settings: siteSettings()
+      // 不导出访客/IP、独立阅读去重记录、会话、密码，照片文件也需要单独备份数据目录。
+      settings: {
+        title: s.title, subtitle: s.subtitle, author: s.author,
+        footer: s.footer, perPage: s.perPage
+      }
     };
     res.download(JSON.stringify(data, null, 2), 'mo-blog-backup-' + today() + '.json', 'application/json; charset=utf-8');
   }));
@@ -327,7 +385,7 @@ function register(app) {
     const dateOk = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : today();
     try {
       tx(() => {
-        db.exec('DELETE FROM posts; DELETE FROM comments; DELETE FROM cats; DELETE FROM tags; DELETE FROM subscribers;');
+        db.exec('DELETE FROM post_visitors; DELETE FROM posts; DELETE FROM comments; DELETE FROM cats; DELETE FROM tags; DELETE FROM subscribers;');
         db.exec("DELETE FROM sqlite_sequence WHERE name IN ('posts','comments');");
         const insP = db.prepare('INSERT INTO posts(id,title,cat,tags,date,status,views,content) VALUES(?,?,?,?,?,?,?,?)');
         for (const p of data.posts.slice(0, 100000)) {

@@ -2,6 +2,10 @@
 'use strict';
 const { test } = require('node:test');
 const assert = require('node:assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync } = require('child_process');
 const { mdToHtml } = require('../lib/md');
 const { normalizeAdminPath } = require('../lib/config');
 
@@ -67,4 +71,47 @@ test('normalizeAdminPath 接受合法、拒绝非法与保留字', () => {
   assert.throws(() => normalizeAdminPath('/a/b'));
   assert.throws(() => normalizeAdminPath('/post'));
   assert.throws(() => normalizeAdminPath('/search'));
+  assert.throws(() => normalizeAdminPath('/uploads'));
+});
+
+test('旧版数据库启动时无损补齐独立访客列', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ablog-old-schema-'));
+  const env = { ...process.env, ABLOG_DATA_DIR: dataDir, ADMIN_PASSWORD: 'test-pass-123' };
+  try {
+    execFileSync(process.execPath, ['-e', `
+      const path = require('path');
+      const { DatabaseSync } = require('node:sqlite');
+      const db = new DatabaseSync(path.join(process.env.ABLOG_DATA_DIR, 'blog.db'));
+      db.exec("CREATE TABLE posts(id INTEGER PRIMARY KEY AUTOINCREMENT,title TEXT NOT NULL,cat TEXT NOT NULL DEFAULT '未分类',tags TEXT NOT NULL DEFAULT '[]',date TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'draft',views INTEGER NOT NULL DEFAULT 0,content TEXT NOT NULL DEFAULT ''); CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT NOT NULL); INSERT INTO settings(key,value) VALUES('initialized','1'),('session_secret','x'),('admin_pass','x');");
+      db.close();
+    `], { cwd: path.join(__dirname, '..'), env });
+    const result = execFileSync(process.execPath, ['-e', `
+      const { db } = require('./lib/db');
+      process.stdout.write(String(db.prepare('PRAGMA table_info(posts)').all().some(c => c.name === 'unique_views')));
+      db.close();
+    `], { cwd: path.join(__dirname, '..'), env, encoding: 'utf8' });
+    assert.match(result, /true/);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
+test('启动时清理超过保留期的访客 IP', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ablog-expired-visitor-'));
+  const env = { ...process.env, ABLOG_DATA_DIR: dataDir, ADMIN_PASSWORD: 'test-pass-123' };
+  try {
+    const result = execFileSync(process.execPath, ['-e', `
+      const { q, db } = require('./lib/db');
+      const old = new Date(Date.now() - 91 * 24 * 60 * 60 * 1000).toISOString();
+      const key = 'a'.repeat(64);
+      q.insertVisitor.run(key, '203.0.113.1', '', '', '', '', old, old, '/');
+      const { purgeOldVisitors } = require('./lib/visitors');
+      purgeOldVisitors(true);
+      process.stdout.write(q.visitorByKey.get(key) ? 'retained' : 'purged');
+      db.close();
+    `], { cwd: path.join(__dirname, '..'), env, encoding: 'utf8' });
+    assert.match(result, /purged/);
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
 });

@@ -97,10 +97,30 @@ function request(base, method, urlPath, opts = {}) {
   });
 }
 
+/** 构造最小 multipart/form-data 请求体，供照片上传等零依赖路由测试使用。 */
+function multipart(fields = {}, files = []) {
+  const boundary = '----ablog-test-' + Math.random().toString(16).slice(2);
+  const chunks = [];
+  const pushText = value => chunks.push(Buffer.from(value, 'utf8'));
+  for (const [name, value] of Object.entries(fields)) {
+    pushText(`--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`);
+  }
+  for (const file of files) {
+    pushText(`--${boundary}\r\nContent-Disposition: form-data; name="${file.name}"; filename="${file.filename}"\r\nContent-Type: ${file.contentType || 'application/octet-stream'}\r\n\r\n`);
+    chunks.push(Buffer.from(file.data));
+    pushText('\r\n');
+  }
+  pushText(`--${boundary}--\r\n`);
+  return {
+    body: Buffer.concat(chunks),
+    contentType: `multipart/form-data; boundary=${boundary}`
+  };
+}
+
 /** 登录并返回会话 cookie */
-async function login(base, password = 'test-pass-123') {
-  const r = await request(base, 'POST', '/admin/login', { form: { password } });
+async function login(base, password = 'test-pass-123', adminPath = '/admin') {
+  const r = await request(base, 'POST', adminPath + '/login', { form: { password } });
   return r.cookies;
 }
 
-module.exports = { startServer, request, login };
+module.exports = { startServer, request, multipart, login };

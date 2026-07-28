@@ -391,7 +391,7 @@ select.input { appearance: auto; }
 .head-note { font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 48%, transparent); font-variant-numeric: tabular-nums; }
 
 /* 仪表盘 */
-.stat-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 30px; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 16px; margin-bottom: 30px; }
 .stat-num { font-family: var(--font-heading); font-weight: 400; font-size: 44px; line-height: 1; font-variant-numeric: tabular-nums; }
 .stat-num.warn { color: var(--color-accent-700); }
 .dash-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 26px; align-items: start; }
@@ -498,12 +498,36 @@ button.op { background: none; border: 0; padding: 0; cursor: pointer; font: inhe
 
 /* 站点设置 */
 .settings-col { max-width: 560px; }
+.settings-wide { max-width: 780px; }
 .settings-fields { display: flex; flex-direction: column; gap: 16px; }
 .field--narrow { max-width: 180px; }
 .settings-actions { display: flex; align-items: center; gap: 14px; margin-top: 24px; }
 .settings-reset { margin-top: 40px; border-top: 1px solid var(--color-divider); padding-top: 20px; }
 .settings-reset h4 { font-size: 17px; margin: 0 0 6px; }
 .settings-reset .note { font-size: 12.5px; margin: 0 0 12px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+.settings-photo {
+  display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 18px; align-items: start;
+  margin-top: 22px; padding-top: 20px; border-top: 1px solid var(--color-divider);
+}
+.settings-portrait, .settings-portrait-empty {
+  width: 112px; height: 136px; border: 1px solid var(--color-divider); border-radius: var(--radius-md);
+}
+.settings-portrait { object-fit: cover; }
+.settings-portrait-empty {
+  display: flex; align-items: center; justify-content: center; padding: 10px; text-align: center;
+  font-size: 12px; color: color-mix(in srgb, var(--color-text) 48%, transparent);
+}
+.settings-photo-fields .note { font-size: 12.5px; margin: 9px 0 0; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+.check-row { display: inline-flex; align-items: center; gap: 7px; margin-top: 12px; font-size: 13px; }
+
+/* 访客管理 */
+.visitor-note { font-size: 12.5px; line-height: 1.7; margin: 0 0 16px; color: color-mix(in srgb, var(--color-text) 55%, transparent); }
+.visitor-ip, .visitor-path, .visitor-time { font-variant-numeric: tabular-nums; }
+.visitor-ip { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+.visitor-location { display: flex; align-items: center; gap: 7px; }
+.visitor-flag { font-family: sans-serif; font-size: 15px; line-height: 1; }
+.visitor-path { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: color-mix(in srgb, var(--color-text) 62%, transparent); }
+.visitor-time { min-width: 152px; line-height: 1.65; }
 
 /* 登录页 */
 .login-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
@@ -585,4 +609,7 @@ button.op { background: none; border: 0; padding: 0; cursor: pointer; font: inhe
   .tax-grid { grid-template-columns: 1fr; }
   .table-scroll { overflow-x: auto; }
   .table-scroll .table { min-width: 640px; }
+  .settings-photo { grid-template-columns: 92px minmax(0, 1fr); }
+  .settings-portrait, .settings-portrait-empty { width: 92px; height: 112px; }
+  .visitor-table { min-width: 820px !important; }
 }

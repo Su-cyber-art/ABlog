@@ -29,6 +29,29 @@ test('文章详情渲染正文与评论', async () => {
   assert.match(r.body, /林间/); // 已通过的评论
 });
 
+test('同一匿名访客对同一文章只计一次独立阅读', async () => {
+  const first = await request(srv.base, 'GET', '/post/4');
+  assert.match(first.cookies, /mo_visitor=/);
+  const n1 = Number(first.body.match(/(\d+) 位独立访客/)[1]);
+
+  const repeat = await request(srv.base, 'GET', '/post/4', { cookies: first.cookies });
+  const n2 = Number(repeat.body.match(/(\d+) 位独立访客/)[1]);
+  assert.equal(n2, n1);
+
+  const another = await request(srv.base, 'GET', '/post/4');
+  const n3 = Number(another.body.match(/(\d+) 位独立访客/)[1]);
+  assert.equal(n3, n1 + 1);
+});
+
+test('HEAD、DNT 与爬虫请求不写入访客 cookie', async () => {
+  const head = await request(srv.base, 'HEAD', '/post/5');
+  assert.equal(head.cookies, '');
+  const dnt = await request(srv.base, 'GET', '/post/5', { headers: { DNT: '1' } });
+  assert.equal(dnt.cookies, '');
+  const bot = await request(srv.base, 'GET', '/about', { headers: { 'User-Agent': 'ExampleBot/1.0' } });
+  assert.equal(bot.cookies, '');
+});
+
 test('草稿对匿名访客返回 404', async () => {
   const r = await request(srv.base, 'GET', '/post/8');
   assert.equal(r.status, 404);

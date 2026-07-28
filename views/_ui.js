@@ -75,6 +75,7 @@ const ICONS = {
   tax: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2H2v10l9.29 9.29a1 1 0 0 0 1.42 0l8.58-8.58a1 1 0 0 0 0-1.42Z"></path><circle cx="7" cy="7" r="1.5"></circle></svg>',
   comments: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>',
   subs: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>',
+  visitors: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle><path d="M22 11a3 3 0 0 0-2-2.83"></path><path d="M18 21v-2a4 4 0 0 0-3-3.87"></path></svg>',
   settings: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="6" x2="14" y2="6"></line><line x1="10" y1="6" x2="3" y2="6"></line><line x1="21" y1="12" x2="12" y2="12"></line><line x1="8" y1="12" x2="3" y2="12"></line><line x1="21" y1="18" x2="16" y2="18"></line><line x1="12" y1="18" x2="3" y2="18"></line><circle cx="12" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="14" cy="18" r="2"></circle></svg>'
 };
 
@@ -99,6 +100,7 @@ function adminTop(ctx, view, pageTitle) {
     ${item('tax', adminUrl('/taxonomy'), 'tax', '分类与标签')}
     ${item('comments', adminUrl('/comments'), 'comments', '评论管理', badge)}
     ${item('subs', adminUrl('/subscribers'), 'subs', '订阅者')}
+    ${item('visitors', adminUrl('/visitors'), 'visitors', '访客管理')}
     ${item('settings', adminUrl('/settings'), 'settings', '站点设置')}
 
     <div class="admin-side-foot">
