@@ -3,6 +3,8 @@
 'use strict';
 const { test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
+const fs = require('node:fs');
+const path = require('node:path');
 const { startServer, request, multipart, login } = require('./helpers');
 
 let srv;
@@ -147,6 +149,36 @@ test('自定义后台路径可访问，旧 /admin 不暴露后台', async () => 
   } finally {
     custom.stop();
   }
+});
+
+test('站点设置可保存后台路径，手工启动时提示重启', async () => {
+  const cookies = await login(srv.base);
+  const changed = await request(srv.base, 'POST', '/admin/settings', {
+    cookies,
+    form: { title: '默', subtitle: 's', author: '默', footer: 'f', perPage: '5', adminPath: '/studio_7f3a' }
+  });
+  assert.equal(changed.status, 302);
+  assert.match(changed.location, /saved=1/);
+  assert.match(changed.location, /adminPath=%2Fstudio_7f3a/);
+  assert.match(changed.location, /restart=0/);
+
+  const stored = JSON.parse(fs.readFileSync(path.join(srv.dataDir, 'admin-path.json'), 'utf8'));
+  assert.deepEqual(stored, { adminPath: '/studio_7f3a' });
+
+  const settings = await request(srv.base, 'GET', changed.location, { cookies });
+  assert.match(settings.body, /后台路径已改为/);
+  assert.match(settings.body, /请重启服务后使用新路径/);
+});
+
+test('站点设置拒绝保留的后台路径且不写入覆盖配置', async () => {
+  const cookies = await login(srv.base);
+  const rejected = await request(srv.base, 'POST', '/admin/settings', {
+    cookies,
+    form: { title: '默', subtitle: 's', author: '默', footer: 'f', perPage: '5', adminPath: '/about' }
+  });
+  assert.equal(rejected.status, 302);
+  assert.match(rejected.location, /adminPath=err/);
+  assert.equal(fs.existsSync(path.join(srv.dataDir, 'admin-path.json')), false);
 });
 
 test('设置页可上传关于页照片，拒绝伪造图片', async () => {

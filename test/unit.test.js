@@ -74,6 +74,27 @@ test('normalizeAdminPath 接受合法、拒绝非法与保留字', () => {
   assert.throws(() => normalizeAdminPath('/uploads'));
 });
 
+test('后台保存的路径在下次启动时覆盖初始环境变量', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ablog-admin-path-'));
+  const env = { ...process.env, ABLOG_DATA_DIR: dataDir, ADMIN_PATH: '/from-env' };
+  const configFile = path.join(dataDir, 'admin-path.json');
+  try {
+    fs.writeFileSync(configFile, JSON.stringify({ adminPath: '/from-settings' }) + '\n');
+    const overridden = execFileSync(process.execPath, ['-e', `
+      process.stdout.write(require('./lib/config').ADMIN_PATH);
+    `], { cwd: path.join(__dirname, '..'), env, encoding: 'utf8' });
+    assert.equal(overridden, '/from-settings');
+
+    fs.writeFileSync(configFile, '{invalid json');
+    const fallback = execFileSync(process.execPath, ['-e', `
+      process.stdout.write(require('./lib/config').ADMIN_PATH);
+    `], { cwd: path.join(__dirname, '..'), env, encoding: 'utf8' });
+    assert.equal(fallback, '/from-env');
+  } finally {
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('旧版数据库启动时无损补齐独立访客列', () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ablog-old-schema-'));
   const env = { ...process.env, ABLOG_DATA_DIR: dataDir, ADMIN_PASSWORD: 'test-pass-123' };

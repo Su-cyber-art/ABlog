@@ -367,6 +367,7 @@ function visitors(ctx, d) {
 /** 站点设置 */
 function settings(ctx, d) {
   const s = ctx.s;
+  const adminPath = d.adminPath || ADMIN_PATH;
   const portrait = s.portraitUrl
     ? `<img class="settings-portrait" src="${esc(s.portraitUrl)}" alt="当前作者照片">`
     : '<div class="settings-portrait-empty">尚未上传照片</div>';
@@ -381,6 +382,7 @@ function settings(ctx, d) {
           <div class="field"><label>作者署名</label><input class="input" name="author" value="${esc(s.author)}"></div>
           <div class="field"><label>页脚文字</label><input class="input" name="footer" value="${esc(s.footer)}"></div>
           <div class="field field--narrow"><label>首页每页文章数</label><input class="input" type="number" min="1" max="20" name="perPage" value="${s.perPage}" style="font-variant-numeric:tabular-nums"></div>
+          <div class="field"><label>后台路径</label><input class="input" name="adminPath" value="${esc(adminPath)}" maxlength="65" pattern="/[A-Za-z0-9][A-Za-z0-9_-]{0,63}" autocomplete="off"><p class="note">保存后在新路径继续管理；systemd 部署会自动重启，手工启动请自行重启服务。</p></div>
           <div class="field"><label>修改后台密码（留空则不变）</label><input class="input" type="password" name="newPassword" autocomplete="new-password" placeholder="新密码"></div>
         </div>
         <div class="settings-photo">
@@ -394,6 +396,8 @@ function settings(ctx, d) {
         <div class="settings-actions">
           <button class="btn btn-primary" type="submit">保存设置</button>
           ${d.saved ? `<span class="form-ok">已保存。${d.pwChanged ? '密码已更新。' : ''}</span>` : ''}
+          ${d.adminPathChanged ? `<span class="form-ok">后台路径已改为 <a href="${esc(d.adminPathChanged)}">${esc(d.adminPathChanged)}</a>。${d.restartScheduled ? '服务正在重启。' : '请重启服务后使用新路径。'}</span>` : ''}
+          ${d.adminPathError ? '<span class="form-ok" style="color:var(--color-neutral-600)">后台路径无效或无法保存。</span>' : ''}
           ${d.reset ? '<span class="form-ok">示例数据已恢复。</span>' : ''}
           ${d.photoError ? '<span class="form-ok" style="color:var(--color-neutral-600)">照片未保存：请上传不超过 5 MiB 的 JPEG、PNG 或 WebP 文件。</span>' : ''}
         </div>

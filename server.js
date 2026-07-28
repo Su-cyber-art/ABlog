@@ -14,15 +14,20 @@ const server = buildApp().listen(PORT, HOST, () => {
 
 /* 优雅退出:停止接收新连接 → 关闭数据库 → 退出(systemd 重启/升级时不丢请求) */
 let closing = false;
-function shutdown(signal) {
+function shutdown(signal, exitCode = 0) {
   if (closing) return;
   closing = true;
   console.log(`[默·博客] 收到 ${signal},正在退出…`);
   server.close(() => {
     try { db.close(); } catch (e) { /* 忽略 */ }
-    process.exit(0);
+    process.exit(exitCode);
   });
-  setTimeout(() => process.exit(0), 5000).unref();
+  setTimeout(() => process.exit(exitCode), 5000).unref();
 }
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
+
+// 仅由 systemd 托管时使用失败码触发 Restart=on-failure，手工启动不被后台设置强制退出。
+process.on('ablog:restart', () => {
+  if (process.env.INVOCATION_ID) shutdown('后台路径更新', 1);
+});

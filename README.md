@@ -12,7 +12,7 @@
 curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh | sudo bash
 ```
 
-菜单提供安装、升级、卸载、当前运行状态、当前版本和 GitHub 最新 Release 版本查看。首次显示菜单时会通过 HTTPS 查询一次最新版本；查询失败不会阻断安装或升级。首次安装会交互询问监听端口、后台路径、公网地址和后台密码，密码输入不会回显；升级会保留 `/etc/ablog/ablog.env` 与现有博客数据。卸载默认只停止服务并移除程序文件，保留数据、配置和服务账号；只有在二次确认后才会彻底删除它们。
+菜单提供安装、升级、卸载、当前运行状态、当前版本和 GitHub 最新 Release 版本查看。首次显示菜单时会通过 HTTPS 查询一次最新版本；查询失败不会阻断安装或升级。首次安装会交互询问监听端口、可自定义的后台路径（不固定为 `/mo`）、公网地址和后台密码，密码输入不会回显。升级始终保留 `/etc/ablog/ablog.env` 与现有博客数据；后台路径请在登录后的「站点设置」中修改。完成页优先显示已设置的 `SITE_URL`，否则尝试通过 HTTPS 查询公网 IP，查询失败时显示网卡地址作为回退。卸载默认只停止服务并移除程序文件，保留数据、配置和服务账号；只有在二次确认后才会彻底删除它们。
 
 也可以在终端直接指定动作:
 
@@ -153,7 +153,7 @@ Ablog/
 ## 常见操作
 
 - **换端口**:`set PORT=8080 && node server.js`(PowerShell:`$env:PORT=8080; node server.js`)
-- **换后台路径**:`ADMIN_PATH=/manage_7f3a node server.js`(PowerShell:`$env:ADMIN_PATH='/manage_7f3a'; node server.js`)
+- **换后台路径**:登录后台的「站点设置」输入新的单段路径并保存。Linux systemd 部署会自动重启；手工执行 `node server.js` 时请自行重启。首次手工部署也可使用 `ADMIN_PATH=/manage_7f3a node server.js`(PowerShell:`$env:ADMIN_PATH='/manage_7f3a'; node server.js`)。
 - **备份**:运行中的 SQLite 使用 WAL，不能只复制 `blog.db`。优先用后台 JSON 导出内容；需要完整迁移时先停服务，再整体复制 `data/`（或 `ABLOG_DATA_DIR`）及其中的 `uploads/`，随后再启动服务。后台 JSON 不包含访客 IP、访客记录、密码和照片文件
 - **重置一切**:删除 `data/` 文件夹后重启(密码也会重置为 `mo-admin`)
 - **忘记密码**:删除 `data/` 文件夹重启(会连数据一起重置,先备份 `blog.db`;或用 SQLite 工具删掉 `settings` 表里 `admin_pass` 那行再重启)
@@ -163,7 +163,7 @@ Ablog/
 
 Linux 服务器推荐使用上方的二进制一键部署。手动部署时,任何能跑 Node ≥22.5 的主机都可以:`node server.js` 即可,数据默认在 `data/blog.db`;可通过 `ABLOG_DATA_DIR` 指定独立数据目录。
 建议前面加一层 Nginx/Caddy 做 HTTPS,并设置环境变量 `SITE_URL=https://你的域名`(用于 RSS 链接)。
-首次部署前可同时设置强密码和后台路径:`ADMIN_PASSWORD=你的密码 ADMIN_PATH=/manage_7f3a node server.js`。密码仅在数据库首次初始化时生效;后台路径每次启动都从环境变量读取。
+首次部署前可同时设置强密码和后台路径:`ADMIN_PASSWORD=你的密码 ADMIN_PATH=/manage_7f3a node server.js`。密码仅在数据库首次初始化时生效；后台路径默认从环境变量读取，后台设置修改后会保存到数据目录并在下次启动时优先使用。
 
 维护者推送 `v*` 标签后,GitHub Actions 会自动生成 Linux x64/ARM64 二进制包和 SHA-256 校验文件:
 

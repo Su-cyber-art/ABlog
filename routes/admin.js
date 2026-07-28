@@ -7,7 +7,7 @@ const {
   clientIp, loginBlocked, recordLoginFail, clearLoginFails
 } = require('../lib/auth');
 const { mdToHtml } = require('../lib/md');
-const { ADMIN_PATH, adminUrl } = require('../lib/config');
+const { ADMIN_PATH, adminUrl, normalizeAdminPath, saveAdminPathOverride } = require('../lib/config');
 const { savePortrait, removePortrait } = require('../lib/media');
 const { countryFlag, VISITOR_RETENTION_DAYS } = require('../lib/visitors');
 const view = require('../views/admin');
@@ -306,16 +306,33 @@ function register(app) {
 
   /* ── 站点设置 ── */
   app.get(adminUrl('/settings'), guard((req, res) => {
+    let adminPathChanged = '';
+    if (req.query.adminPath && req.query.adminPath !== 'err') {
+      try { adminPathChanged = normalizeAdminPath(req.query.adminPath); } catch (e) { /* 忽略无效查询值 */ }
+    }
     res.html(view.settings(ctx(req), {
       saved: req.query.saved === '1',
       reset: req.query.reset === '1',
       pwChanged: req.query.pw === '1',
       importResult: ['ok', 'err'].includes(req.query.import) ? req.query.import : null,
-      photoError: req.query.photo === 'err'
+      photoError: req.query.photo === 'err',
+      adminPath: ADMIN_PATH,
+      adminPathChanged,
+      adminPathError: req.query.adminPath === 'err',
+      restartScheduled: req.query.restart === '1' && Boolean(adminPathChanged)
     }));
   }));
 
   app.post(adminUrl('/settings'), guard((req, res) => {
+    let requestedAdminPath;
+    try {
+      const rawAdminPath = req.body.adminPath == null ? ADMIN_PATH : String(req.body.adminPath).trim();
+      if (!rawAdminPath) throw new Error('empty admin path');
+      requestedAdminPath = normalizeAdminPath(rawAdminPath);
+    } catch (e) {
+      return res.redirect(adminUrl('/settings?adminPath=err'));
+    }
+
     const portrait = (req.files || []).find(file => file.name === 'portrait');
     try {
       if (portrait) savePortrait(portrait);
@@ -341,7 +358,25 @@ function register(app) {
         `mo_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 3600}`);
       suffix = '&pw=1';
     }
+
+    let adminPathChanged = '';
+    if (requestedAdminPath !== ADMIN_PATH) {
+      try {
+        adminPathChanged = saveAdminPathOverride(requestedAdminPath);
+      } catch (e) {
+        console.error('[默·博客] 后台路径保存失败:', e.message);
+        return res.redirect(adminUrl('/settings?adminPath=err' + suffix));
+      }
+    }
+
+    const restartScheduled = Boolean(adminPathChanged && process.env.INVOCATION_ID);
+    if (adminPathChanged) {
+      suffix += '&adminPath=' + encodeURIComponent(adminPathChanged) + '&restart=' + (restartScheduled ? '1' : '0');
+    }
     res.redirect(adminUrl('/settings?saved=1' + suffix));
+    if (restartScheduled) {
+      setTimeout(() => process.emit('ablog:restart'), 750).unref();
+    }
   }));
 
   app.post(adminUrl('/reset'), guard((req, res) => {

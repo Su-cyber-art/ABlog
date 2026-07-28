@@ -7,6 +7,7 @@ readonly INSTALL_ROOT="/opt/ablog"
 readonly RELEASES_DIR="${INSTALL_ROOT}/releases"
 readonly CURRENT_LINK="${INSTALL_ROOT}/current"
 readonly DATA_DIR="/var/lib/ablog"
+readonly ADMIN_PATH_OVERRIDE_FILE="${DATA_DIR}/admin-path.json"
 readonly CONFIG_DIR="/etc/ablog"
 readonly ENV_FILE="${CONFIG_DIR}/ablog.env"
 readonly SERVICE_FILE="/etc/systemd/system/ablog.service"
@@ -25,6 +26,8 @@ REQUESTED_ACTION="auto"
 OPERATION=""
 LATEST_VERSION='获取失败'
 LATEST_VERSION_CHECKED='0'
+ACCESS_URL=""
+ACCESS_URL_SOURCE=""
 
 COLOR_RESET=""
 COLOR_BLUE=""
@@ -314,8 +317,6 @@ validate_config() {
 }
 
 collect_initial_config() {
-  local confirm
-
   if [[ -f "${ENV_FILE}" ]]; then
     if [[ "${OPERATION}" == "upgrade" ]]; then
       log "检测到现有配置，升级时保持 ${ENV_FILE} 不变"
@@ -337,7 +338,7 @@ collect_initial_config() {
       ui_line "${COLOR_GOLD}ABlog 首次安装配置${COLOR_RESET}"
       ui_separator
       prompt_default CONFIG_PORT "监听端口" "${CONFIG_PORT}"
-      prompt_default CONFIG_ADMIN_PATH "后台路径" "${CONFIG_ADMIN_PATH}"
+      prompt_default CONFIG_ADMIN_PATH "后台路径（例如 /manage_7f3a）" "${CONFIG_ADMIN_PATH}"
       prompt_default CONFIG_SITE_URL "站点公网地址（可留空）" "${CONFIG_SITE_URL}"
       if [[ -z "${CONFIG_ADMIN_PASSWORD}" || ${#CONFIG_ADMIN_PASSWORD} -lt 8 ]]; then
         prompt_password
@@ -472,6 +473,25 @@ read_env_value() {
   printf '%s' "${value:-${fallback}}"
 }
 
+read_admin_path_override() {
+  local value normalized
+  [[ -f "${ADMIN_PATH_OVERRIDE_FILE}" ]] || return 1
+  value="$(awk -F'"' '/"adminPath"[[:space:]]*:/ { print $4; exit }' "${ADMIN_PATH_OVERRIDE_FILE}")"
+  [[ -n "${value}" ]] || return 1
+  normalized="$(normalize_admin_path "${value}")" || return 1
+  printf '%s' "${normalized}"
+}
+
+effective_admin_path() {
+  local configured override
+  configured="$(read_env_value "ADMIN_PATH" "/admin")"
+  if override="$(read_admin_path_override)"; then
+    printf '%s' "${override}"
+  else
+    printf '%s' "${configured}"
+  fi
+}
+
 write_initial_config() {
   install -d -m 0755 "${CONFIG_DIR}"
 
@@ -563,7 +583,8 @@ start_service() {
   fi
 
   for attempt in {1..20}; do
-    if curl --fail --silent --show-error "http://127.0.0.1:${port}/" >/dev/null; then
+    if curl --fail --silent --connect-timeout 1 --max-time 2 \
+      "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1; then
       return
     fi
     sleep 1
@@ -574,18 +595,117 @@ start_service() {
   die "ABlog 服务未通过本机健康检查"
 }
 
+is_ipv4() {
+  local value octet
+  value="$1"
+  [[ "${value}" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]] || return 1
+  IFS=. read -r -a octet <<<"${value}"
+  for value in "${octet[@]}"; do
+    ((10#${value} <= 255)) || return 1
+  done
+}
+
+is_public_ipv4() {
+  local first second
+  is_ipv4 "$1" || return 1
+  IFS=. read -r first second _ <<<"$1"
+
+  ((10#${first} != 0 && 10#${first} != 10 && 10#${first} != 127)) || return 1
+  ((10#${first} != 169 || 10#${second} != 254)) || return 1
+  ((10#${first} != 192 || 10#${second} != 168)) || return 1
+  ((10#${first} != 172 || 10#${second} < 16 || 10#${second} > 31)) || return 1
+  ((10#${first} != 100 || 10#${second} < 64 || 10#${second} > 127)) || return 1
+}
+
+network_ipv4_candidates() {
+  if command -v ip >/dev/null 2>&1; then
+    ip -o -4 addr show scope global 2>/dev/null | awk '{ split($4, parts, "/"); print parts[1] }'
+  fi
+  if command -v hostname >/dev/null 2>&1; then
+    hostname -I 2>/dev/null | tr ' ' '\n'
+  fi
+}
+
+detect_public_ipv4() {
+  local endpoint candidate
+  for endpoint in 'https://api.ipify.org' 'https://ipv4.icanhazip.com'; do
+    candidate="$(curl --proto '=https' --tlsv1.2 --fail --silent \
+      --connect-timeout 2 --max-time 4 "${endpoint}" 2>/dev/null || true)"
+    candidate="${candidate//$'\r'/}"
+    candidate="${candidate//$'\n'/}"
+    if is_public_ipv4 "${candidate}"; then
+      printf '%s' "${candidate}"
+      return
+    fi
+  done
+  return 1
+}
+
+resolve_access_url() {
+  local port site_url candidate fallback_ip public_ip
+  port="$1"
+  site_url="$(read_env_value "SITE_URL" "")"
+  ACCESS_URL=""
+  ACCESS_URL_SOURCE=""
+
+  if [[ -n "${site_url}" ]]; then
+    ACCESS_URL="${site_url}"
+    ACCESS_URL_SOURCE='站点公网地址'
+    return
+  fi
+
+  fallback_ip=""
+  while IFS= read -r candidate; do
+    if is_public_ipv4 "${candidate}"; then
+      ACCESS_URL="http://${candidate}:${port}"
+      ACCESS_URL_SOURCE='网卡公网 IP'
+      return
+    fi
+    if is_ipv4 "${candidate}" && [[ "${candidate}" != 127.* ]] && [[ -z "${fallback_ip}" ]]; then
+      fallback_ip="${candidate}"
+    fi
+  done < <(network_ipv4_candidates)
+
+  public_ip="$(detect_public_ipv4 || true)"
+  if [[ -n "${public_ip}" ]]; then
+    ACCESS_URL="http://${public_ip}:${port}"
+    ACCESS_URL_SOURCE='检测到的公网 IP'
+    return
+  fi
+
+  if [[ -n "${fallback_ip}" ]]; then
+    ACCESS_URL="http://${fallback_ip}:${port}"
+    ACCESS_URL_SOURCE='网卡地址'
+    return
+  fi
+
+  ACCESS_URL="http://127.0.0.1:${port}"
+  ACCESS_URL_SOURCE='本机地址'
+}
+
 print_result() {
-  local port admin_path verb
+  local port admin_path verb address_label admin_label
   port="$(read_env_value "PORT" "3000")"
-  admin_path="$(read_env_value "ADMIN_PATH" "/admin")"
+  admin_path="$(effective_admin_path)"
   verb='安装'
   if [[ "${OPERATION}" == "upgrade" ]]; then
     verb='升级'
   fi
 
+  resolve_access_url "${port}"
+  address_label='访问地址'
+  admin_label='管理后台'
+  if [[ "${ACCESS_URL_SOURCE}" == '网卡地址' || "${ACCESS_URL_SOURCE}" == '本机地址' ]]; then
+    address_label="访问地址（${ACCESS_URL_SOURCE}）"
+    admin_label="管理后台（${ACCESS_URL_SOURCE}）"
+  fi
+
   log "${verb}完成"
-  printf '  访问地址: http://服务器IP:%s\n' "${port}"
-  printf '  管理后台: http://服务器IP:%s%s\n' "${port}" "${admin_path}"
+  printf '  %s: %s\n' "${address_label}" "${ACCESS_URL}"
+  printf '  %s: %s%s\n' "${admin_label}" "${ACCESS_URL}" "${admin_path}"
+  if [[ "${ACCESS_URL_SOURCE}" == '网卡地址' || "${ACCESS_URL_SOURCE}" == '本机地址' ]]; then
+    printf '  提示: 未能检测公网 IP；如服务器位于 NAT 或负载均衡后，请设置 SITE_URL。\n'
+  fi
   printf '  配置文件: %s\n' "${ENV_FILE}"
   printf '  数据目录: %s\n' "${DATA_DIR}"
   if [[ -n "${GENERATED_PASSWORD}" ]]; then
