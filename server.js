@@ -1,6 +1,6 @@
 /* 默·博客 — 服务入口(零依赖:Node 内置 http + node:sqlite) */
 'use strict';
-const { ADMIN_PATH } = require('./lib/config');
+const { ADMIN_PATH, IS_SYSTEMD_MANAGED } = require('./lib/config');
 const { buildApp } = require('./lib/app');
 const { db } = require('./lib/db');
 
@@ -27,7 +27,7 @@ function shutdown(signal, exitCode = 0) {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 
-// 仅由 systemd 托管时使用失败码触发 Restart=on-failure，手工启动不被后台设置强制退出。
+// 仅由 ABlog 自身的 systemd 单元标记时使用失败码触发 Restart=on-failure。
 process.on('ablog:restart', () => {
-  if (process.env.INVOCATION_ID) shutdown('后台路径更新', 1);
+  if (IS_SYSTEMD_MANAGED) shutdown('后台路径更新', 1);
 });

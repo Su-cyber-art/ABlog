@@ -544,6 +544,7 @@ User=ablog
 Group=ablog
 WorkingDirectory=/opt/ablog/current/app
 Environment=NODE_ENV=production
+Environment=ABLOG_SYSTEMD_SERVICE=1
 EnvironmentFile=/etc/ablog/ablog.env
 ExecStart=/opt/ablog/current/node/bin/node /opt/ablog/current/app/server.js
 Restart=on-failure

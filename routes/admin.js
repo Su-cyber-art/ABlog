@@ -7,7 +7,7 @@ const {
   clientIp, loginBlocked, recordLoginFail, clearLoginFails
 } = require('../lib/auth');
 const { mdToHtml } = require('../lib/md');
-const { ADMIN_PATH, adminUrl, normalizeAdminPath, saveAdminPathOverride } = require('../lib/config');
+const { ADMIN_PATH, IS_SYSTEMD_MANAGED, adminUrl, normalizeAdminPath, saveAdminPathOverride } = require('../lib/config');
 const { savePortrait, removePortrait } = require('../lib/media');
 const { countryFlag, VISITOR_RETENTION_DAYS } = require('../lib/visitors');
 const view = require('../views/admin');
@@ -369,7 +369,7 @@ function register(app) {
       }
     }
 
-    const restartScheduled = Boolean(adminPathChanged && process.env.INVOCATION_ID);
+    const restartScheduled = Boolean(adminPathChanged && IS_SYSTEMD_MANAGED);
     if (adminPathChanged) {
       suffix += '&adminPath=' + encodeURIComponent(adminPathChanged) + '&restart=' + (restartScheduled ? '1' : '0');
     }

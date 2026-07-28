@@ -170,6 +170,48 @@ test('站点设置可保存后台路径，手工启动时提示重启', async ()
   assert.match(settings.body, /请重启服务后使用新路径/);
 });
 
+test('继承宿主 systemd 标识时不安排 ABlog 重启', async () => {
+  const inherited = await startServer({ INVOCATION_ID: 'host-runner-unit' });
+  try {
+    await inherited.ready;
+    const cookies = await login(inherited.base);
+    const changed = await request(inherited.base, 'POST', '/admin/settings', {
+      cookies,
+      form: { title: '默', subtitle: 's', author: '默', footer: 'f', perPage: '5', adminPath: '/inherited-id' }
+    });
+    assert.equal(changed.status, 302);
+    assert.match(changed.location, /restart=0/);
+  } finally {
+    inherited.stop();
+  }
+});
+
+test('ABlog systemd 专用标记会安排后台路径重启', async () => {
+  const managed = await startServer({ ABLOG_SYSTEMD_SERVICE: '1' });
+  try {
+    await managed.ready;
+    const cookies = await login(managed.base);
+    const changed = await request(managed.base, 'POST', '/admin/settings', {
+      cookies,
+      form: { title: '默', subtitle: 's', author: '默', footer: 'f', perPage: '5', adminPath: '/managed-service' }
+    });
+    assert.equal(changed.status, 302);
+    assert.match(changed.location, /restart=1/);
+
+    const exit = await new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('ABlog systemd restart was not scheduled')), 3000);
+      managed.child.once('exit', (code, signal) => {
+        clearTimeout(timer);
+        resolve({ code, signal });
+      });
+    });
+    assert.equal(exit.code, 1);
+    assert.equal(exit.signal, null);
+  } finally {
+    managed.stop();
+  }
+});
+
 test('站点设置拒绝保留的后台路径且不写入覆盖配置', async () => {
   const cookies = await login(srv.base);
   const rejected = await request(srv.base, 'POST', '/admin/settings', {

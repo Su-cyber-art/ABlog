@@ -34,6 +34,13 @@ test('安装器后台路径校验与应用保留路径一致', () => {
   }
 });
 
+test('安装器只为 ABlog 自身的 systemd 单元写入托管标记', () => {
+  const unit = bash(['-c', 'source ./install.sh; declare -f write_systemd_unit']);
+  assert.equal(unit.status, 0, unit.stderr);
+  assert.match(unit.stdout, /Environment=ABLOG_SYSTEMD_SERVICE=1/);
+  assert.doesNotMatch(unit.stdout, /INVOCATION_ID/);
+});
+
 test('交互菜单定义状态、操作项和分隔线', () => {
   const menu = bash(['-c', 'source ./install.sh; declare -f print_menu; declare -f ui_separator']);
   assert.equal(menu.status, 0, menu.stderr);

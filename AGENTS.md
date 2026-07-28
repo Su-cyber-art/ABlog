@@ -115,7 +115,7 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 - 安装器升级时必须保留 `/etc/ablog/ablog.env` 和 `/var/lib/ablog`。
 - 下载继续强制 HTTPS、校验 SHA-256，并在解压前验证归档路径。
 - Release 安装采用新目录加原子符号链接切换；启动失败必须能够回滚到旧版本。
-- systemd 服务继续使用独立的 `ablog` 用户和现有沙箱限制。新增可写目录时同步 `ReadWritePaths`。
+- systemd 服务继续使用独立的 `ablog` 用户和现有沙箱限制。新增可写目录时同步 `ReadWritePaths`。只有安装器写入的 `ABLOG_SYSTEMD_SERVICE=1` 能触发 ABlog 的自动重启；不得用通用 `INVOCATION_ID` 判断服务归属，因为 CI Runner 等 systemd 子进程也会继承它。涉及该分支时同时测试“继承 `INVOCATION_ID` 不重启”和“专用标记会重启”。
 - 交互模式和 `ABLOG_NONINTERACTIVE=1` 都必须可用。新增配置项时同步提示、环境文件、结果输出、README 和应用端校验。
 - `scripts/build-linux-bundle.sh` 必须只打包运行所需文件，并校验下载的官方 Node.js 归档。
 - 发布工作流继续为 x64、arm64 同时生成 `.tar.gz` 和 `.sha256`；修改 Node.js 版本时同步 workflow 默认值和相关文档。
