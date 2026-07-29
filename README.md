@@ -12,7 +12,7 @@
 curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh | sudo bash
 ```
 
-菜单提供安装、升级、卸载、当前运行状态、当前版本和 GitHub 最新 Release 版本查看。首次显示菜单时会通过 HTTPS 查询一次最新版本；查询失败不会阻断安装或升级。首次安装会交互询问监听端口、可自定义的后台路径（不固定为 `/mo`）、公网地址和后台密码，密码输入不会回显。升级始终保留 `/etc/ablog/ablog.env` 与现有博客数据；后台路径请在登录后的「站点设置」中修改。完成页优先显示已设置的 `SITE_URL`，否则尝试通过 HTTPS 查询公网 IP，查询失败时显示网卡地址作为回退。卸载默认只停止服务并移除程序文件，保留数据、配置和服务账号；只有在二次确认后才会彻底删除它们。
+菜单提供安装、升级、卸载、当前运行状态、当前版本和 GitHub 最新 Release 版本查看。首次显示菜单时会通过 HTTPS 查询一次最新版本；查询失败不会阻断安装或升级。首次安装会交互询问监听端口、监听范围、可自定义的后台路径（不固定为 `/mo`）、公网地址和后台密码，密码输入不会回显；密码留空时会自动生成，并在确认页提示、安装完成后显示。监听范围默认允许通过服务器 IP 直连，也可选择仅本机监听以配合 Nginx/Caddy。升级保留 `/etc/ablog/ablog.env` 与现有博客数据；旧配置缺少 `HOST` 时会按原有直连语义补为 `0.0.0.0`。后台路径请在登录后的「站点设置」中修改。完成页优先显示已设置的 `SITE_URL`，否则仅在允许直连时检测公网或网卡地址。卸载默认只停止服务并移除程序文件，保留数据、配置和服务账号；只有在二次确认后才会彻底删除它们。
 
 也可以在终端直接指定动作:
 
@@ -29,13 +29,14 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
   | sudo env ABLOG_NONINTERACTIVE=1 \
       ABLOG_ACTION=install \
       PORT=3000 \
+      HOST='0.0.0.0' \
       ADMIN_PATH='/manage_7f3a' \
       ADMIN_PASSWORD='换成至少8位的强密码' \
       SITE_URL='https://blog.example.com' \
       bash
 ```
 
-无人值守模式未传 `ADMIN_PASSWORD` 时会自动生成随机密码并在完成时显示。无人值守卸载必须额外显式确认，彻底清除数据、配置和服务账号时再加上 `ABLOG_PURGE_DATA=1`:
+无人值守安装的 `HOST` 默认为 `0.0.0.0`，可设为 `127.0.0.1` 仅供本机反向代理访问；未传 `ADMIN_PASSWORD` 时会自动生成随机密码并在完成时显示。交互安装也可以在密码提示处直接按 Enter 使用随机密码。随机密码只在终端显示，请立即保存并在首次登录后修改。无人值守卸载必须额外显式确认，彻底清除数据、配置和服务账号时再加上 `ABLOG_PURGE_DATA=1`:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh \
@@ -63,7 +64,7 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
    - 前台 <http://localhost:3000>
    - 后台 <http://localhost:3000/admin>
 
-首次初始化若未设置 `ADMIN_PASSWORD`，终端会生成并显示一条随机后台密码。请立即保存，并在登录后通过「站点设置」修改。服务默认只监听 `127.0.0.1`；需要局域网或公网直连时显式设置 `HOST`，公网部署必须使用 HTTPS 反向代理。
+手工首次启动时，若未设置 `ADMIN_PASSWORD` 或将其设为空值，终端会生成并显示一条随机后台密码；使用一键安装器时，也可以在密码提示处直接按 Enter 自动生成。随机密码只在终端显示，请立即保存，并在登录后通过「站点设置」修改。手工启动的服务默认只监听 `127.0.0.1`；需要局域网或公网直连时可显式设置 `HOST=0.0.0.0`。直连使用普通 HTTP，正式公网部署应使用 HTTPS 反向代理。
 
 ## 功能
 
@@ -96,7 +97,7 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 
 ### 访客统计与归属地
 
-独立访客使用签名的第一方 Cookie 识别浏览器,而不是按 IP 去重;同一浏览器重复阅读同一篇文章只计一次独立访客。清除 Cookie、无痕窗口或换设备会被视为新的匿名访客。系统不记录 User-Agent、来源页或完整浏览历史,仅保留最后一次 IP、最后页面、首次/最近访问时间和汇总次数;启动时与之后每 6 小时清理超过 90 天的记录。
+独立访客使用签名的第一方 Cookie 识别浏览器,而不是按 IP 去重;同一浏览器在 90 天保留窗口内重复阅读同一篇文章只计一次独立访客。清除 Cookie、无痕窗口或换设备会被视为新的匿名访客。系统不记录 User-Agent、来源页或完整浏览历史,仅保留最后一次 IP、最后页面、首次/最近访问时间和汇总次数;启动时与之后每 6 小时清理超过 90 天的记录，并同步滚动文章的近 90 天独立访客数。
 
 后台 JSON 导出不会携带 IP、匿名访客标识或文章去重基线。因此，用 JSON 导入内容后，文章的“独立访客”从 0 重新统计；站点级访客记录仍留在本机，直到其按保留期自动清理或在后台手动清空。需要完整迁移时，请在停服后整体备份数据目录。
 
@@ -116,7 +117,7 @@ npm test        # 等价于 node --test,零依赖
 ```
 
 覆盖前台、后台、单元和安装器场景:页面渲染、分页、草稿权限、搜索、归档筛选、评论审核、
-分类标签、订阅、独立访客、可信归属地、照片上传、安装器菜单、动作选择、最新版本校验与缓存、备份恢复、登录限速、改密下线、Markdown 渲染与安全。CI 见 `.github/workflows/test.yml`。
+分类标签、订阅、独立访客、可信归属地、照片上传、安装器菜单、动作选择、监听范围、随机密码、旧配置迁移、最新版本校验与缓存、备份恢复、登录限速、改密下线、Markdown 渲染与安全。CI 见 `.github/workflows/test.yml`。
 
 ## 目录结构
 
@@ -150,7 +151,8 @@ Ablog/
 
 ## 常见操作
 
-- **换端口**:`set PORT=8080 && node server.js`(PowerShell:`$env:PORT=8080; node server.js`)
+- **换端口**:Windows CMD 使用 `set PORT=8080 && node server.js`，PowerShell 使用 `$env:PORT=8080; node server.js`，Bash 使用 `PORT=8080 node server.js`
+- **换监听范围**:Bash 使用 `HOST=0.0.0.0 node server.js` 允许局域网/公网直连，或使用 `HOST=127.0.0.1 node server.js` 仅供本机访问；PowerShell 对应设置 `$env:HOST='0.0.0.0'` 或 `$env:HOST='127.0.0.1'` 后运行 `node server.js`。Linux 一键部署请编辑 `/etc/ablog/ablog.env` 中的 `HOST`，然后执行 `sudo systemctl restart ablog`
 - **换后台路径**:登录后台的「站点设置」输入新的单段路径并保存。Linux systemd 部署会自动重启；手工执行 `node server.js` 时请自行重启。首次手工部署也可使用 `ADMIN_PATH=/manage_7f3a node server.js`(PowerShell:`$env:ADMIN_PATH='/manage_7f3a'; node server.js`)。
 - **备份**:运行中的 SQLite 使用 WAL，不能只复制 `blog.db`。优先用后台 JSON 导出内容；需要完整迁移时先停服务，再整体复制 `data/`（或 `ABLOG_DATA_DIR`）及其中的 `uploads/`，随后再启动服务。后台 JSON 不包含访客 IP、访客记录、密码和照片文件
 - **重置一切**:删除 `data/` 文件夹后重启（密码会重新随机生成并显示在终端）
@@ -159,9 +161,11 @@ Ablog/
 
 ## 部署到公网(可选)
 
-Linux 服务器推荐使用上方的二进制一键部署。手动部署时，使用 Node 22.13+（22.x）或 23.4+ 执行 `node server.js` 即可；数据默认在 `data/blog.db`，也可通过 `ABLOG_DATA_DIR` 指定独立的非静态数据目录（不能放在 `public/` 内）。服务默认监听 `127.0.0.1`；需要对外绑定时显式设置 `HOST`。
-公网部署必须在前面使用 Nginx/Caddy 提供 HTTPS,并设置环境变量 `SITE_URL=https://你的域名`（仅允许协议、主机和可选端口）。反向代理应覆盖客户端传入的转发头，并将 Node 端口限制为仅本机或可信网络可达。
-首次部署前可同时设置强密码和后台路径:`ADMIN_PASSWORD=你的密码 ADMIN_PATH=/manage_7f3a node server.js`。密码仅在数据库首次初始化时生效；后台路径默认从环境变量读取，后台设置修改后会保存到数据目录并在下次启动时优先使用。
+Linux 服务器推荐使用上方的二进制一键部署。一键安装器默认选择 `HOST=0.0.0.0`，安装完成后可通过 `http://服务器IP:端口` 直连；选择“仅本机”时使用 `HOST=127.0.0.1`，供同机的 Nginx/Caddy 反向代理访问。手动部署时，使用 Node 22.13+（22.x）或 23.4+ 执行 `node server.js` 即可；服务默认监听 `127.0.0.1`，需要对外绑定时显式设置 `HOST=0.0.0.0`。
+
+ABlog 自身只提供 HTTP。正式公网部署应使用 Nginx/Caddy 提供 HTTPS，并设置环境变量 `SITE_URL=https://你的域名`（仅允许协议、主机和可选端口）。`SITE_URL` 会用于 RSS、站点地图等绝对链接、跨站 POST 校验，并让会话 Cookie 启用 `Secure`；反向代理应覆盖客户端传入的转发头，并将 Node 端口限制为仅本机或可信网络可达。
+
+首次部署前可同时设置监听地址、强密码和后台路径:`HOST=0.0.0.0 ADMIN_PASSWORD=你的密码 ADMIN_PATH=/manage_7f3a node server.js`。密码仅在数据库首次初始化时生效；不设置或设为空值时会随机生成。后台路径默认从环境变量读取，后台设置修改后会保存到数据目录并在下次启动时优先使用。数据默认在 `data/blog.db`，也可通过 `ABLOG_DATA_DIR` 指定独立的非静态数据目录；解析符号链接后的实际路径也不能位于 `public/` 内。
 
 维护者推送 `v*` 标签后,GitHub Actions 会自动生成 Linux x64/ARM64 二进制包和 SHA-256 校验文件:
 

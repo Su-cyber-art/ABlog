@@ -123,6 +123,14 @@ test('gzip 协商尊重大小写与 q=0', async () => {
   const refused = await request(srv.base, 'GET', '/', { headers: { 'Accept-Encoding': 'gzip;q=0' } });
   assert.equal(refused.headers['content-encoding'], undefined);
   assert.match(refused.headers.vary, /Accept-Encoding/i);
+  const prefersIdentity = await request(srv.base, 'GET', '/', {
+    headers: { 'Accept-Encoding': 'gzip;q=0.5, identity;q=1' }
+  });
+  assert.equal(prefersIdentity.headers['content-encoding'], undefined);
+  const none = await request(srv.base, 'GET', '/healthz', {
+    headers: { 'Accept-Encoding': 'identity;q=0, *;q=0' }
+  });
+  assert.equal(none.status, 406);
 });
 
 test('站点地图不会反射恶意 Host XML', async () => {

@@ -33,11 +33,17 @@ test('登录限速:多次失败后锁定', async () => {
   assert.match(r.location, /blocked=1/);
 });
 
-test('跨站 POST 被 403 拦截', async () => {
+test('跨站 POST 被拦截，未配置 SITE_URL 时兼容 HTTPS 反代', async () => {
   const r = await request(srv.base, 'POST', '/admin/login', {
     form: { password: 'x' }, headers: { Origin: 'https://evil.example' }
   });
   assert.equal(r.status, 403);
+  const proxied = await request(srv.base, 'POST', '/admin/login', {
+    form: { password: 'test-pass-123' },
+    headers: { Origin: 'https://blog.example.com', Host: 'blog.example.com' }
+  });
+  assert.equal(proxied.status, 302);
+  assert.match(proxied.location, /\/admin$/);
 });
 
 test('发布文章后出现在前台首页', async () => {

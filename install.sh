@@ -22,6 +22,7 @@ NEW_RELEASE=""
 OLD_UNIT_BACKUP=""
 GENERATED_PASSWORD=""
 CONFIG_PORT=""
+CONFIG_HOST=""
 CONFIG_SITE_URL=""
 CONFIG_ADMIN_PATH=""
 CONFIG_ADMIN_PASSWORD=""
@@ -65,7 +66,7 @@ require_root() {
 require_commands() {
   local command_name
   for command_name in \
-    awk chown chmod curl date getent grep groupadd id install journalctl ln mktemp mv od readlink rm \
+    awk chown chmod cp curl date getent grep groupadd id install journalctl ln mktemp mv od readlink rm \
     sha256sum sleep systemctl tar tr uname useradd; do
     command -v "${command_name}" >/dev/null 2>&1 || die "缺少命令: ${command_name}"
   done
@@ -249,13 +250,23 @@ prompt_yes_no() {
   done
 }
 
+generate_password() {
+  od -An -N18 -tx1 /dev/urandom | tr -d ' \n'
+}
+
 prompt_password() {
   local first second
 
   while true; do
-    printf '  后台初始密码（至少 8 位）: ' >/dev/tty
+    printf '  后台初始密码（至少 8 位，留空自动生成）: ' >/dev/tty
     IFS= read -r -s first </dev/tty || die "无法读取终端输入"
     printf '\n' >/dev/tty
+    if [[ -z "${first}" ]]; then
+      CONFIG_ADMIN_PASSWORD="$(generate_password)"
+      GENERATED_PASSWORD="${CONFIG_ADMIN_PASSWORD}"
+      printf '  已生成随机密码，将在安装完成后显示。\n' >/dev/tty
+      return
+    fi
     if ((${#first} < 8)); then
       printf '  密码至少需要 8 位，请重新输入。\n' >/dev/tty
       continue
@@ -306,6 +317,11 @@ validate_config() {
   CONFIG_PORT="$((10#${CONFIG_PORT}))"
   ((CONFIG_PORT >= 1024 && CONFIG_PORT <= 65535)) || config_error "PORT 必须在 1024 到 65535 之间" || return
 
+  [[ "${CONFIG_HOST}" == "0.0.0.0" || "${CONFIG_HOST}" == "127.0.0.1" ]] || {
+    config_error "HOST 只能是 0.0.0.0（公网/局域网直连）或 127.0.0.1（仅本机）"
+    return 1
+  }
+
   CONFIG_ADMIN_PATH="$(normalize_admin_path "${CONFIG_ADMIN_PATH}")" || {
     config_error "ADMIN_PATH 必须是安全的单段路径，例如 /admin 或 /manage_7f3a"
     return 1
@@ -334,9 +350,10 @@ validate_config() {
 }
 
 collect_initial_config() {
+  local public_listen_default
   if [[ -f "${ENV_FILE}" ]]; then
     if [[ "${OPERATION}" == "upgrade" ]]; then
-      log "检测到现有配置，升级时保持 ${ENV_FILE} 不变"
+      log "检测到现有配置，升级时保留 ${ENV_FILE}"
     else
       log "检测到保留配置，安装时继续使用 ${ENV_FILE}"
     fi
@@ -344,6 +361,7 @@ collect_initial_config() {
   fi
 
   CONFIG_PORT="${PORT:-3000}"
+  CONFIG_HOST="${HOST:-0.0.0.0}"
   CONFIG_SITE_URL="${SITE_URL:-}"
   CONFIG_ADMIN_PATH="${ADMIN_PATH:-/admin}"
   CONFIG_ADMIN_PASSWORD="${ADMIN_PASSWORD:-}"
@@ -355,6 +373,13 @@ collect_initial_config() {
       ui_line "${COLOR_GOLD}ABlog 首次安装配置${COLOR_RESET}"
       ui_separator
       prompt_default CONFIG_PORT "监听端口" "${CONFIG_PORT}"
+      public_listen_default='1'
+      [[ "${CONFIG_HOST}" == "127.0.0.1" ]] && public_listen_default='0'
+      if prompt_yes_no "允许通过服务器 IP 直接访问？（否 = 仅本机，供反向代理使用）" "${public_listen_default}"; then
+        CONFIG_HOST="0.0.0.0"
+      else
+        CONFIG_HOST="127.0.0.1"
+      fi
       prompt_default CONFIG_ADMIN_PATH "后台路径（例如 /manage_7f3a）" "${CONFIG_ADMIN_PATH}"
       prompt_default CONFIG_SITE_URL "站点公网地址（可留空）" "${CONFIG_SITE_URL}"
       if [[ -z "${CONFIG_ADMIN_PASSWORD}" || ${#CONFIG_ADMIN_PASSWORD} -lt 8 ]]; then
@@ -368,16 +393,25 @@ collect_initial_config() {
 
     ui_line
     ui_line "  端口: ${CONFIG_PORT}"
+    if [[ "${CONFIG_HOST}" == "0.0.0.0" ]]; then
+      ui_line "  监听范围: 公网/局域网直连"
+    else
+      ui_line "  监听范围: 仅本机（反向代理）"
+    fi
     ui_line "  后台路径: ${CONFIG_ADMIN_PATH}"
     ui_line "  公网地址: ${CONFIG_SITE_URL:-未设置}"
-    ui_line "  后台密码: 已设置"
+    if [[ -n "${GENERATED_PASSWORD}" ]]; then
+      ui_line "  后台密码: 已随机生成（安装完成后显示）"
+    else
+      ui_line "  后台密码: 已设置"
+    fi
     if ! prompt_yes_no "确认开始安装？" 1; then
       log "已取消安装"
       exit 0
     fi
   else
     if [[ -z "${CONFIG_ADMIN_PASSWORD}" ]]; then
-      CONFIG_ADMIN_PASSWORD="$(od -An -N18 -tx1 /dev/urandom | tr -d ' \n')"
+      CONFIG_ADMIN_PASSWORD="$(generate_password)"
       GENERATED_PASSWORD="${CONFIG_ADMIN_PASSWORD}"
     fi
     validate_config || die "无人值守配置无效"
@@ -551,6 +585,13 @@ write_initial_config() {
 
   if [[ -e "${ENV_FILE}" ]]; then
     [[ -f "${ENV_FILE}" && ! -L "${ENV_FILE}" ]] || die "现有配置必须是普通文件: ${ENV_FILE}"
+    if ! grep -q '^HOST=' "${ENV_FILE}"; then
+      {
+        printf '\n'
+        write_env_value "HOST" "0.0.0.0"
+      } >>"${ENV_FILE}"
+      log "现有配置缺少 HOST，已按旧版直连语义设置为 0.0.0.0"
+    fi
     chown root:root "${ENV_FILE}"
     chmod 0600 "${ENV_FILE}"
     log "保留现有配置 ${ENV_FILE}"
@@ -560,6 +601,7 @@ write_initial_config() {
   umask 077
   {
     write_env_value "PORT" "${CONFIG_PORT}"
+    write_env_value "HOST" "${CONFIG_HOST}"
     write_env_value "SITE_URL" "${CONFIG_SITE_URL}"
     write_env_value "ADMIN_PASSWORD" "${CONFIG_ADMIN_PASSWORD}"
     write_env_value "ADMIN_PATH" "${CONFIG_ADMIN_PATH}"
@@ -601,7 +643,7 @@ write_systemd_unit() {
   [[ ! -L "${SERVICE_FILE}" ]] || die "systemd 单元不能是符号链接: ${SERVICE_FILE}"
   if [[ -f "${SERVICE_FILE}" ]]; then
     OLD_UNIT_BACKUP="${TEMP_DIR}/ablog.service.previous"
-    cp -p "${SERVICE_FILE}" "${OLD_UNIT_BACKUP}"
+    cp -p "${SERVICE_FILE}" "${OLD_UNIT_BACKUP}" || return 1
   fi
   cat >"${temp_unit}" <<EOF
 ${UNIT_MARKER}
@@ -632,8 +674,9 @@ ReadWritePaths=/var/lib/ablog
 [Install]
 WantedBy=multi-user.target
 EOF
-  chmod 0644 "${temp_unit}"
-  mv -f "${temp_unit}" "${SERVICE_FILE}"
+  [[ -s "${temp_unit}" ]] || return 1
+  chmod 0644 "${temp_unit}" || return 1
+  mv -f "${temp_unit}" "${SERVICE_FILE}" || return 1
 }
 
 rollback_release() {
@@ -649,7 +692,11 @@ rollback_release() {
     systemctl daemon-reload >/dev/null 2>&1 || rollback_failed='1'
     systemctl restart ablog.service >/dev/null 2>&1 || rollback_failed='1'
   elif [[ -n "${NEW_RELEASE}" ]]; then
+    systemctl stop ablog.service >/dev/null 2>&1 || true
+    systemctl disable ablog.service >/dev/null 2>&1 || true
     rm -f -- "${CURRENT_LINK}" || rollback_failed='1'
+    systemctl daemon-reload >/dev/null 2>&1 || rollback_failed='1'
+    systemctl reset-failed ablog.service >/dev/null 2>&1 || true
   fi
   [[ -z "${NEW_RELEASE}" ]] || rm -rf -- "${NEW_RELEASE}" || rollback_failed='1'
   NEW_RELEASE=''
@@ -730,15 +777,22 @@ detect_public_ipv4() {
 }
 
 resolve_access_url() {
-  local port site_url candidate fallback_ip public_ip
+  local port host site_url candidate fallback_ip public_ip
   port="$1"
   site_url="$(read_env_value "SITE_URL" "")"
+  host="$(read_env_value "HOST" "0.0.0.0")"
   ACCESS_URL=""
   ACCESS_URL_SOURCE=""
 
   if [[ -n "${site_url}" ]]; then
     ACCESS_URL="${site_url}"
     ACCESS_URL_SOURCE='站点公网地址'
+    return
+  fi
+
+  if [[ "${host}" == "127.0.0.1" ]]; then
+    ACCESS_URL="http://127.0.0.1:${port}"
+    ACCESS_URL_SOURCE='本机地址'
     return
   fi
 
@@ -808,9 +862,15 @@ deploy_ablog() {
   ensure_service_account
   write_initial_config
   install_release
-  if ! write_systemd_unit || ! start_service; then
+  local deploy_failed='0'
+  write_systemd_unit || deploy_failed='1'
+  if [[ "${deploy_failed}" == '0' ]]; then start_service || deploy_failed='1'; fi
+  if [[ "${deploy_failed}" == '1' ]]; then
+    if [[ -n "${GENERATED_PASSWORD}" ]]; then
+      printf '  本次生成但未完成部署的后台密码: %s\n' "${GENERATED_PASSWORD}" >&2
+    fi
     if rollback_release; then
-      die "部署失败，已恢复原版本"
+      die "部署失败，已恢复原版本；首次安装留下的数据和配置可供重试"
     fi
     die "部署与回滚均失败，请立即检查服务状态"
   fi
@@ -895,6 +955,11 @@ print_usage() {
 环境变量:
   ABLOG_NONINTERACTIVE=1  禁用菜单和交互提示
   ABLOG_ACTION=...        install、upgrade、uninstall 或 auto（默认）
+  PORT=...                HTTP 监听端口（默认 3000）
+  HOST=...                0.0.0.0（默认，允许直连）或 127.0.0.1（仅本机）
+  SITE_URL=...            站点公网地址（可留空）
+  ADMIN_PATH=...          后台路径（默认 /admin）
+  ADMIN_PASSWORD=...      后台初始密码（未设置或交互留空时随机生成）
   ABLOG_CONFIRM_UNINSTALL=1  无人值守卸载确认
   ABLOG_PURGE_DATA=1      卸载时同时删除数据、配置和服务账号
 EOF

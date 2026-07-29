@@ -19,8 +19,22 @@ test('安装器可通过 Bash 语法检查并提供动作说明', () => {
   const help = bash(['install.sh', '--help']);
   assert.equal(help.status, 0, help.stderr);
   assert.match(help.stdout, /install\|upgrade\|uninstall/);
+  assert.match(help.stdout, /HOST=.*0\.0\.0\.0/);
+  assert.match(help.stdout, /ADMIN_PASSWORD=.*随机生成/);
   assert.match(help.stdout, /ABLOG_CONFIRM_UNINSTALL=1/);
   assert.match(help.stdout, /ABLOG_PURGE_DATA=1/);
+});
+
+test('交互与无人值守安装共用随机密码生成并提示完成后显示', () => {
+  const functions = bash(['-c', 'source ./install.sh; declare -f generate_password prompt_password collect_initial_config print_result']);
+  assert.equal(functions.status, 0, functions.stderr);
+  assert.match(functions.stdout, /留空自动生成/);
+  assert.match(functions.stdout, /已生成随机密码，将在安装完成后显示/);
+  assert.match(functions.stdout, /generate_password/);
+  assert.match(functions.stdout, /初始后台密码/);
+
+  const generated = bash(['-c', "source ./install.sh; generate_password | grep -Eq '^[0-9a-f]{36}$'"]);
+  assert.equal(generated.status, 0, generated.stderr);
 });
 
 test('安装器后台路径校验与应用保留路径一致', () => {
@@ -58,38 +72,48 @@ test('交互菜单定义状态、操作项和分隔线', () => {
 test('升级保留已有配置，健康检查静默等待就绪', () => {
   const functions = bash(['-c', 'source ./install.sh; declare -f collect_initial_config write_initial_config start_service effective_admin_path']);
   assert.equal(functions.status, 0, functions.stderr);
-  assert.match(functions.stdout, /升级时保持/);
+  assert.match(functions.stdout, /升级时保留/);
   assert.match(functions.stdout, /后台路径（例如 \/manage_7f3a）/);
   assert.match(functions.stdout, /\/healthz/);
   assert.doesNotMatch(functions.stdout, /--show-error/);
   assert.match(functions.stdout, /read_admin_path_override/);
   assert.match(functions.stdout, /systemctl is-active/);
+  assert.match(functions.stdout, /现有配置缺少 HOST/);
+  assert.match(functions.stdout, /write_env_value "HOST"/);
   assert.doesNotMatch(functions.stdout, /write_updated_config/);
 });
 
-test('安装器按十进制规范化端口并拒绝溢出值', () => {
+test('安装器规范化端口并校验监听范围', () => {
   const overflow = bash(['-c', `
     source ./install.sh
-    CONFIG_PORT=18446744073709554616 CONFIG_SITE_URL='' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
+    CONFIG_PORT=18446744073709554616 CONFIG_HOST=0.0.0.0 CONFIG_SITE_URL='' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
     validate_config
   `]);
   assert.notEqual(overflow.status, 0);
 
   const invalidSite = bash(['-c', `
     source ./install.sh
-    CONFIG_PORT=3000 CONFIG_SITE_URL='https://blog.example.com:99999' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
+    CONFIG_PORT=3000 CONFIG_HOST=0.0.0.0 CONFIG_SITE_URL='https://blog.example.com:99999' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
     validate_config
   `]);
   assert.notEqual(invalidSite.status, 0);
 
+  const invalidHost = bash(['-c', `
+    source ./install.sh
+    CONFIG_PORT=3000 CONFIG_HOST=localhost CONFIG_SITE_URL='' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
+    validate_config
+  `]);
+  assert.notEqual(invalidHost.status, 0);
+
   const port = bash(['-c', `
     source ./install.sh
-    CONFIG_PORT=08080 CONFIG_SITE_URL='' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
+    CONFIG_PORT=08080 CONFIG_HOST=127.0.0.1 CONFIG_SITE_URL='' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
     validate_config
-    printf '%s' "$CONFIG_PORT"
+    declare -p CONFIG_PORT CONFIG_HOST
   `]);
   assert.equal(port.status, 0, port.stderr);
-  assert.equal(port.stdout, '8080');
+  assert.match(port.stdout, /CONFIG_PORT="8080"/);
+  assert.match(port.stdout, /CONFIG_HOST="127\.0\.0\.1"/);
 
   const envValue = bash(['-c', `
     d=$(mktemp -d)
@@ -183,4 +207,23 @@ test('安装结果优先使用站点公网地址，再检测公网 IP 或回退�
   assert.equal(fromNetwork.status, 0, fromNetwork.stderr);
   assert.match(fromNetwork.stdout, /ACCESS_URL="http:\/\/10\.8\.0\.4:8848"/);
   assert.match(fromNetwork.stdout, /ACCESS_URL_SOURCE=/);
+});
+
+test('仅本机监听时安装结果不会误报公网地址', () => {
+  const localOnly = bash(['-c', `
+    d=$(mktemp -d)
+    CONFIG_DIR_LINE=$(grep -n 'readonly CONFIG_DIR=' ./install.sh | cut -d: -f1)
+    { head -n $((CONFIG_DIR_LINE - 1)) ./install.sh; printf 'readonly CONFIG_DIR="%s/etc"\n' "$d"; tail -n +$((CONFIG_DIR_LINE + 1)) ./install.sh; } >"$d/install.sh"
+    source "$d/install.sh"
+    mkdir -p "$CONFIG_DIR"
+    { write_env_value SITE_URL ''; write_env_value HOST '127.0.0.1'; } >"$ENV_FILE"
+    network_ipv4_candidates() { printf '%s\n' '203.0.113.9'; }
+    curl() { printf '%s' '203.0.113.10'; }
+    resolve_access_url 8848
+    declare -p ACCESS_URL ACCESS_URL_SOURCE
+    rm -rf "$d"
+  `]);
+  assert.equal(localOnly.status, 0, localOnly.stderr);
+  assert.match(localOnly.stdout, /ACCESS_URL="http:\/\/127\.0\.0\.1:8848"/);
+  assert.match(localOnly.stdout, /ACCESS_URL_SOURCE=/);
 });

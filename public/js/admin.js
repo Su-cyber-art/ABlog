@@ -17,8 +17,13 @@
   });
 
   var savedDraft = new URLSearchParams(window.location.search).get('savedDraft');
-  if (savedDraft && window.localStorage) {
-    try { localStorage.removeItem('mo-draft-' + savedDraft); } catch (e) { /* 忽略 */ }
+  if (window.sessionStorage) {
+    try {
+      if (savedDraft && window.localStorage && sessionStorage.getItem('mo-saved-draft') === savedDraft) {
+        localStorage.removeItem('mo-draft-' + savedDraft);
+      }
+      sessionStorage.removeItem('mo-saved-draft');
+    } catch (e) { /* 忽略 */ }
   }
 
   // 写作页:Markdown 实时预览 + 字数统计
@@ -70,7 +75,10 @@
     ta.addEventListener('input', save);
     form.addEventListener('submit', function () {
       clearTimeout(timer);
-      try { localStorage.setItem(key, JSON.stringify(snapshot())); } catch (e) { /* 忽略 */ }
+      try {
+        localStorage.setItem(key, JSON.stringify(snapshot()));
+        sessionStorage.setItem('mo-saved-draft', idInput ? idInput.value : 'new');
+      } catch (e) { /* 忽略 */ }
     });
 
     // 进入页面:若存在与当前内容不同的暂存稿,给一条恢复提示

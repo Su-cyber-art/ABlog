@@ -81,6 +81,16 @@ test('SITE_URL 只接受规范站点源，数据目录不能位于 public 内', 
   assert.throws(() => normalizeSiteUrl('https://user:pass@blog.example.com'));
   assert.throws(() => assertPrivateDataDir(path.join(__dirname, '..', 'public', 'data')));
   assert.doesNotThrow(() => assertPrivateDataDir(path.join(os.tmpdir(), 'ablog-private-data')));
+  if (process.platform !== 'win32') {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ablog-data-link-'));
+    const link = path.join(root, 'public-link');
+    try {
+      fs.symlinkSync(path.join(__dirname, '..', 'public'), link, 'dir');
+      assert.throws(() => assertPrivateDataDir(path.join(link, 'data')));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  }
 });
 
 test('无效端口在数据库初始化前失败', () => {

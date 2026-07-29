@@ -44,7 +44,7 @@ function excerptOf(p) {
 
 function enrichFront(p) {
   const reads = SHOW_VIEWS ? '阅读 ' + (p.views || 0) + ' · ' : '';
-  const visitors = '独立访客 ' + (p.unique_views || 0) + ' · ';
+  const visitors = '近 90 天独立访客 ' + (p.unique_views || 0) + ' · ';
   return {
     id: p.id,
     title: p.title,
@@ -164,7 +164,7 @@ function register(app) {
         title: post.title,
         metaLine: '约 ' + post.content.replace(/\s/g, '').length + ' 字'
           + (SHOW_VIEWS ? ' · ' + (post.views || 0) + ' 次阅读' : '')
-          + ' · ' + (post.unique_views || 0) + ' 位独立访客'
+          + ' · 近 90 天 ' + (post.unique_views || 0) + ' 位独立访客'
           + ' · 署名 ' + c.s.author,
         bodyHtml: mdToHtml(post.content),
         tags: parseTags(post),

@@ -74,7 +74,6 @@ function register(app) {
   });
 
   app.post(adminUrl('/logout'), (req, res) => {
-    if (req.isAdmin) setSetting('session_secret', crypto.randomBytes(32).toString('hex'));
     res.setHeader('Set-Cookie', `mo_session=; ${cookieOptions(0)}`);
     res.redirect('/');
   });
@@ -162,7 +161,7 @@ function register(app) {
     const content = String(req.body.content || '').replace(/\r\n/g, '\n');
     const tags = [...new Set(String(req.body.tags || '').split(/[,，]/)
       .map(t => t.trim().slice(0, 40)).filter(Boolean))].slice(0, 20);
-    if (content.length > 512 * 1024) return res.text('文章正文不能超过 512 KiB', 413);
+    if (Buffer.byteLength(content) > 512 * 1024) return res.text('文章正文 UTF-8 大小不能超过 512 KiB', 413);
 
     const existing = rawId ? (id && q.postById.get(id)) : null;
     if (rawId && !existing) {
@@ -358,7 +357,7 @@ function register(app) {
     }
 
     const pw = String(req.body.newPassword || '');
-    if (pw && (pw.length < 8 || pw.length > 200)) return res.text('新密码长度必须为 8 到 200 个字符', 400);
+    if (pw && (!pw.trim() || pw.length < 8 || pw.length > 200)) return res.text('新密码长度必须为 8 到 200 个字符，且不能全为空白', 400);
     const portraitFiles = (req.files || []).filter(file => file.name === 'portrait');
     if (portraitFiles.length > 1) return res.text('一次只能上传一张照片', 400);
     const portrait = portraitFiles[0];
@@ -467,7 +466,7 @@ function register(app) {
       contentBytes += Buffer.byteLength(String(p && p.content || ''));
       if (!Number.isSafeInteger(id) || id <= 0 || postIds.has(id)
         || !Number.isSafeInteger(views) || views < 0 || !dateOk(p && p.date)
-        || String(p && p.content || '').length > 512 * 1024) return res.redirect(adminUrl('/settings?import=err'));
+        || Buffer.byteLength(String(p && p.content || '')) > 512 * 1024) return res.redirect(adminUrl('/settings?import=err'));
       postIds.add(id);
     }
     if (contentBytes > 16 * 1024 * 1024) return res.redirect(adminUrl('/settings?import=err'));
