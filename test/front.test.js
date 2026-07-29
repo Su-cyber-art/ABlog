@@ -3,6 +3,7 @@
 const { test, before, after } = require('node:test');
 const assert = require('node:assert');
 const { startServer, request } = require('./helpers');
+const { version: appVersion } = require('../package.json');
 
 let srv;
 before(async () => { srv = await startServer(); await srv.ready; });
@@ -13,6 +14,17 @@ test('首页渲染并含示例文章', async () => {
   assert.equal(r.status, 200);
   assert.match(r.body, /雨夜札记/);
   assert.match(r.body, /随笔 · Essays/);
+  assert.match(r.body, new RegExp(`/css/site\\.css\\?v=${appVersion.replace(/\./g, '\\.')}`));
+  assert.match(r.body, new RegExp(`/js/dot-grid\\.js\\?v=${appVersion.replace(/\./g, '\\.')}`));
+});
+
+test('前台点阵脚本可加载并包含动态效果降级', async () => {
+  const r = await request(srv.base, 'GET', `/js/dot-grid.js?v=${appVersion}`);
+  assert.equal(r.status, 200);
+  assert.match(r.headers['content-type'], /javascript/);
+  assert.match(r.headers['cache-control'], /max-age=86400/);
+  assert.match(r.body, /prefers-reduced-motion/);
+  assert.match(r.body, /pointer: coarse/);
 });
 
 test('分页:第 2 页存在且首页显示页码', async () => {

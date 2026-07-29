@@ -6,6 +6,7 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 const { startServer, request, multipart, makePng, login } = require('./helpers');
+const { version: appVersion } = require('../package.json');
 
 let srv;
 beforeEach(async () => { srv = await startServer(); await srv.ready; });
@@ -25,6 +26,8 @@ test('错误密码被拒、正确密码发放会话', async () => {
   const dash = await request(srv.base, 'GET', '/admin', { cookies });
   assert.equal(dash.status, 200);
   assert.match(dash.body, /仪表盘/);
+  assert.match(dash.body, new RegExp(`/js/admin\\.js\\?v=${appVersion.replace(/\./g, '\\.')}`));
+  assert.doesNotMatch(dash.body, /dot-grid\.js/);
 });
 
 test('登录限速:多次失败后锁定', async () => {

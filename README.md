@@ -75,6 +75,7 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 - 归档:按年份分组,支持分类与标签两种筛选
 - 全文搜索:`/search`,匹配标题/正文/标签(仅已发布)
 - 关于:作者照片位 + 自述;照片可在后台「站点设置」上传,持久化到数据目录
+- 交互背景:原生 Canvas 点阵响应鼠标移动与点击；触屏设备和“减少动态效果”偏好自动使用静态点阵
 - RSS 全文输出:`/feed.xml`(含 `content:encoded`);`sitemap.xml`、`robots.txt` SEO 三件套;移动端为响应式版式
 
 **后台**(密码登录)
@@ -92,7 +93,7 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 
 **性能与安全**
 
-- 响应 gzip 压缩、静态资源 304 协商缓存、HEAD 请求支持
+- 响应 gzip 压缩、版本化静态资源与 304 协商缓存、HEAD 请求支持
 - 安全响应头(CSP / X-Content-Type-Options / X-Frame-Options / Referrer-Policy)
 - 登录失败限速锁定、改密后其他设备会话立即失效、跨站 POST 拦截
 - `/healthz` 健康检查、SIGTERM 优雅退出

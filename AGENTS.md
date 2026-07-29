@@ -31,6 +31,7 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 | `public/css/site.css` | 设计令牌、组件、页面和响应式样式 |
 | `public/css/fonts.css` | 设计稿导出的自托管字体声明 |
 | `public/js/admin.js` | 后台确认提示、Markdown 预览和字数统计 |
+| `public/js/dot-grid.js` | 前台原生 Canvas 交互点阵背景及动态效果降级 |
 | `install.sh` | Linux 交互式/无人值守安装、升级和回滚 |
 | `scripts/build-linux-bundle.sh` | 组装带 Node.js 的 Linux 发布包 |
 | `.github/workflows/release-linux.yml` | `v*` 标签触发的双架构 Release |
@@ -114,6 +115,8 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 - 同时维护桌面端和 `max-width: 740px` 移动端布局。表格、编辑器、侧栏和长文本不能溢出或互相遮挡。
 - 可见文本默认使用简体中文，并保持现有安静、简洁的语气。
 - 自定义 favicon 必须保存在 `ABLOG_DATA_DIR/uploads`，不能改写 Release 内的 `public/favicon.svg`。页面通过 `siteSettings()` 输出默认 SVG 或带随机版本号的自定义 PNG，替换后必须让当前页面和后续请求使用新 URL。
+- 前台交互点阵必须保持零依赖、只按需渲染，并在触屏设备、页面隐藏或 `prefers-reduced-motion` 生效时停止持续动画；后台不加载点阵脚本。
+- CSS 和 JavaScript 资源 URL 必须带 `package.json` 版本参数，避免升级后继续命中旧版静态缓存。
 - `public/css/fonts.css` 和 `public/fonts/` 是配套的自托管字体资产。不要手工改动大量 `unicode-range`；字体变更必须同时验证声明、文件名和离线加载。
 - `lib/md.js` 同时运行在 Node 和浏览器中，不能引入只存在于单一环境的 API。
 

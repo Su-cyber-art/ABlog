@@ -1,6 +1,9 @@
 /* 默·博客 — 共享视图片段(纯模板函数,无模板引擎) */
 'use strict';
 const { ADMIN_PATH, adminUrl } = require('../lib/config');
+const { version: APP_VERSION } = require('../package.json');
+
+const assetUrl = pathname => `${pathname}?v=${encodeURIComponent(APP_VERSION)}`;
 
 /** HTML 转义 */
 function esc(s) {
@@ -21,8 +24,8 @@ function head(ctx, pageTitle) {
 <title>${esc(title)}</title>
 <link rel="icon" href="${esc(s.faviconUrl || '/favicon.svg')}" type="${esc(s.faviconType || 'image/svg+xml')}">
 <link rel="alternate" type="application/rss+xml" title="${esc(s.title)} · RSS" href="/feed.xml">
-<link rel="stylesheet" href="/css/fonts.css">
-<link rel="stylesheet" href="/css/site.css">
+<link rel="stylesheet" href="${assetUrl('/css/fonts.css')}">
+<link rel="stylesheet" href="${assetUrl('/css/site.css')}">
 </head>
 <body>
 `;
@@ -62,6 +65,7 @@ function frontFooter(ctx) {
 
 </div>
 </div>
+<script src="${assetUrl('/js/dot-grid.js')}"></script>
 </body>
 </html>
 `;
@@ -116,8 +120,8 @@ function adminBottom() {
   return `
   </main>
 </div>
-<script src="/js/md.js"></script>
-<script src="/js/admin.js"></script>
+<script src="${assetUrl('/js/md.js')}"></script>
+<script src="${assetUrl('/js/admin.js')}"></script>
 </body>
 </html>
 `;
