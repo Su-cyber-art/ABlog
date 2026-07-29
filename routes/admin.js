@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const { db, q, tx, getSetting, setSetting, siteSettings, seedAll, parseTags } = require('../lib/db');
 const {
-  hashPassword, verifyPassword, makeToken, SESSION_DAYS,
+  hashPassword, verifyPassword, makeToken, cookieOptions, SESSION_DAYS,
   clientIp, loginBlocked, recordLoginFail, clearLoginFails
 } = require('../lib/auth');
 const { mdToHtml } = require('../lib/md');
@@ -12,7 +12,10 @@ const { savePortrait, removePortrait } = require('../lib/media');
 const { countryFlag, VISITOR_RETENTION_DAYS } = require('../lib/visitors');
 const view = require('../views/admin');
 
-function today() { return new Date().toISOString().slice(0, 10); }
+function today() {
+  const d = new Date();
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+}
 const statusText = p => p.status === 'published' ? '已发布' : '草稿';
 const statusCls = p => 'tag ' + (p.status === 'published' ? 'tag-accent' : 'tag-neutral');
 
@@ -20,19 +23,24 @@ function ctx(req) {
   return {
     s: siteSettings(),
     year: String(new Date().getFullYear()),
-    pendingN: q.pendingComments.all().length
+    pendingN: Number(q.pendingCommentCount.get().count || 0)
   };
 }
 
 /** 登录保护:未登录 → 跳登录页;已登录 → 执行处理器 */
 function guard(handler) {
   return (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
     if (!req.isAdmin) { res.redirect(adminUrl('/login')); return; }
     return handler(req, res);
   };
 }
 
-function intId(s) { return /^\d+$/.test(s) ? Number(s) : null; }
+function intId(s) {
+  if (!/^\d+$/.test(String(s || ''))) return null;
+  const value = Number(s);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
 function visitorKey(s) { return /^[a-f0-9]{64}$/.test(String(s || '')) ? String(s) : ''; }
 function formatVisitTime(value) {
   const date = new Date(value);
@@ -61,13 +69,13 @@ function register(app) {
     }
     clearLoginFails(ip);
     const token = makeToken(getSetting('session_secret', ''));
-    res.setHeader('Set-Cookie',
-      `mo_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 3600}`);
+    res.setHeader('Set-Cookie', `mo_session=${token}; ${cookieOptions(SESSION_DAYS * 24 * 3600)}`);
     res.redirect(ADMIN_PATH);
   });
 
   app.post(adminUrl('/logout'), (req, res) => {
-    res.setHeader('Set-Cookie', 'mo_session=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0');
+    if (req.isAdmin) setSetting('session_secret', crypto.randomBytes(32).toString('hex'));
+    res.setHeader('Set-Cookie', `mo_session=; ${cookieOptions(0)}`);
     res.redirect('/');
   });
 
@@ -85,7 +93,7 @@ function register(app) {
       statViews: all.reduce((a, p) => a + (p.views || 0), 0).toLocaleString('en-US'),
       statVisitors: Number(visitorStats.visitors || 0).toLocaleString('en-US'),
       recentPosts: all.slice(0, 5).map(p => ({ id: p.id, title: p.title, statusCls: statusCls(p), statusText: statusText(p), date: p.date })),
-      pendingList: q.pendingComments.all().map(cm => {
+      pendingList: q.pendingCommentsLimited.all(50).map(cm => {
         const p = q.postById.get(cm.post_id);
         return { id: cm.id, author: cm.author, text: cm.text, postTitle: p ? p.title : '（已删除）' };
       })
@@ -146,26 +154,34 @@ function register(app) {
   }));
 
   app.post(adminUrl('/editor/save'), guard((req, res) => {
-    const id = intId(String(req.body.id || ''));
+    const rawId = String(req.body.id || '');
+    const id = intId(rawId);
     const status = req.body.action === 'publish' ? 'published' : 'draft';
     const title = String(req.body.title || '').trim().slice(0, 200) || '未命名随笔';
     const cat = String(req.body.cat || '未分类').slice(0, 40);
     const content = String(req.body.content || '').replace(/\r\n/g, '\n');
-    const tags = String(req.body.tags || '').split(/[,，]/).map(t => t.trim()).filter(Boolean).slice(0, 20);
+    const tags = [...new Set(String(req.body.tags || '').split(/[,，]/)
+      .map(t => t.trim().slice(0, 40)).filter(Boolean))].slice(0, 20);
+    if (content.length > 512 * 1024) return res.text('文章正文不能超过 512 KiB', 413);
+
+    const existing = rawId ? (id && q.postById.get(id)) : null;
+    if (rawId && !existing) {
+      return renderEditor(req, res, { id, status }, { title, cat, tags: tags.join(', '), content, status });
+    }
 
     tx(() => {
       tags.forEach(t => q.addTag.run(t));
-      if (id) {
-        const p = q.postById.get(id);
-        if (p) {
-          const date = (status === 'published' && p.status !== 'published') ? today() : p.date;
-          q.updatePost.run(title, cat, JSON.stringify(tags), date, status, content, id);
-        }
+      if (existing) {
+        const date = (status === 'published' && existing.status !== 'published') ? today() : existing.date;
+        q.updatePost.run(title, cat, JSON.stringify(tags), date, status, content, id);
       } else {
         q.insertPost.run(title, cat, JSON.stringify(tags), today(), status, content);
       }
     });
-    res.redirect(adminUrl('/posts') + (status === 'draft' ? '?filter=草稿' : ''));
+    const query = new URLSearchParams();
+    if (status === 'draft') query.set('filter', '草稿');
+    query.set('savedDraft', rawId || 'new');
+    res.redirect(adminUrl('/posts') + '?' + query.toString());
   }));
 
   /* ── 分类与标签 ── */
@@ -243,13 +259,13 @@ function register(app) {
     const id = intId(req.params.id);
     const status = ['approved', 'spam'].includes(req.body.status) ? req.body.status : null;
     if (id && status) q.setCommentStatus.run(status, id);
-    res.redirect(req.headers.referer || adminUrl('/comments'));
+    res.redirect(adminUrl('/comments'));
   }));
 
   app.post(adminUrl('/comments/:id/delete'), guard((req, res) => {
     const id = intId(req.params.id);
     if (id) q.deleteComment.run(id);
-    res.redirect(req.headers.referer || adminUrl('/comments'));
+    res.redirect(adminUrl('/comments'));
   }));
 
   /* ── 订阅者 ── */
@@ -263,9 +279,13 @@ function register(app) {
   }));
 
   app.get(adminUrl('/subscribers.csv'), guard((req, res) => {
-    const cell = v => /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    const cell = value => {
+      let v = String(value);
+      if (/^[=+\-@\t\r]/.test(v)) v = "'" + v;
+      return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+    };
     const csv = '﻿email,date\n'
-      + q.listSubscribers.all().map(r => cell(r.email) + ',' + r.date).join('\n') + '\n';
+      + q.listSubscribers.all().map(r => cell(r.email) + ',' + cell(r.date)).join('\n') + '\n';
     res.download(csv, 'subscribers-' + today() + '.csv', 'text/csv; charset=utf-8');
   }));
 
@@ -295,12 +315,16 @@ function register(app) {
 
   app.post(adminUrl('/visitors/:key/delete'), guard((req, res) => {
     const key = visitorKey(req.params.key);
-    if (key) tx(() => { q.deleteVisitorPostRows.run(key); q.deleteVisitor.run(key); });
+    if (key) tx(() => {
+      q.deleteVisitorPostRows.run(key);
+      q.deleteVisitor.run(key);
+      q.recomputeUniqueViews.run();
+    });
     res.redirect(adminUrl('/visitors'));
   }));
 
   app.post(adminUrl('/visitors/clear'), guard((req, res) => {
-    tx(() => { q.clearPostVisitors.run(); q.clearVisitors.run(); });
+    tx(() => { q.clearPostVisitors.run(); q.clearVisitors.run(); q.resetUniqueViews.run(); });
     res.redirect(adminUrl('/visitors?cleared=1'));
   }));
 
@@ -333,7 +357,11 @@ function register(app) {
       return res.redirect(adminUrl('/settings?adminPath=err'));
     }
 
-    const portrait = (req.files || []).find(file => file.name === 'portrait');
+    const pw = String(req.body.newPassword || '');
+    if (pw && (pw.length < 8 || pw.length > 200)) return res.text('新密码长度必须为 8 到 200 个字符', 400);
+    const portraitFiles = (req.files || []).filter(file => file.name === 'portrait');
+    if (portraitFiles.length > 1) return res.text('一次只能上传一张照片', 400);
+    const portrait = portraitFiles[0];
     try {
       if (portrait) savePortrait(portrait);
       else if (req.body.removePortrait === '1') removePortrait();
@@ -346,16 +374,14 @@ function register(app) {
     setSetting('author', String(req.body.author || '').slice(0, 40));
     setSetting('footer', String(req.body.footer || '').slice(0, 120));
     setSetting('perPage', Math.min(20, Math.max(1, parseInt(req.body.perPage, 10) || 5)));
-    const pw = String(req.body.newPassword || '');
     let suffix = '';
-    if (pw.trim()) {
-      setSetting('admin_pass', hashPassword(pw.trim()));
+    if (pw) {
+      setSetting('admin_pass', hashPassword(pw));
       // 轮换会话密钥:所有已发放的登录态立即失效(防旧 cookie 残留)
       setSetting('session_secret', crypto.randomBytes(32).toString('hex'));
       // 给当前这台设备重新签发会话,改密后无需重新登录
       const token = makeToken(getSetting('session_secret', ''));
-      res.setHeader('Set-Cookie',
-        `mo_session=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${SESSION_DAYS * 24 * 3600}`);
+      res.setHeader('Set-Cookie', `mo_session=${token}; ${cookieOptions(SESSION_DAYS * 24 * 3600)}`);
       suffix = '&pw=1';
     }
 
@@ -410,28 +436,70 @@ function register(app) {
 
   app.post(adminUrl('/import'), guard((req, res) => {
     let data;
-    try { data = JSON.parse(String(req.body.payload || '')); } catch (e) { data = null; }
-    const bad = !data || data.app !== 'mo-blog'
+    const uploads = (req.files || []).filter(file => file.name === 'backup');
+    if (uploads.length > 1) return res.redirect(adminUrl('/settings?import=err'));
+    const payload = uploads[0] ? uploads[0].data.toString('utf8') : String(req.body.payload || '');
+    try { data = JSON.parse(payload); } catch (e) { data = null; }
+    const bad = !data || data.app !== 'mo-blog' || data.schema !== 2
       || !Array.isArray(data.posts) || !Array.isArray(data.comments)
-      || !Array.isArray(data.cats) || !Array.isArray(data.tags);
+      || !Array.isArray(data.cats) || !Array.isArray(data.tags)
+      || data.posts.length > 5000 || data.comments.length > 20000
+      || data.cats.length > 500 || data.tags.length > 5000
+      || !Array.isArray(data.subscribers || []) || data.subscribers.length > 20000;
     if (bad) return res.redirect(adminUrl('/settings?import=err'));
 
     const str = (v, n) => String(v == null ? '' : v).slice(0, n);
-    const dateOk = v => /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? String(v) : today();
+    const validDate = value => {
+      const text = String(value);
+      const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+      if (!match) return false;
+      const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+      return date.getUTCFullYear() === Number(match[1]) && date.getUTCMonth() === Number(match[2]) - 1
+        && date.getUTCDate() === Number(match[3]);
+    };
+    const dateOk = v => validDate(v) ? String(v) : null;
+    const postIds = new Set();
+    const commentIds = new Set();
+    let contentBytes = 0;
+    for (const p of data.posts) {
+      const id = Number(p && p.id);
+      const views = Number(p && p.views);
+      contentBytes += Buffer.byteLength(String(p && p.content || ''));
+      if (!Number.isSafeInteger(id) || id <= 0 || postIds.has(id)
+        || !Number.isSafeInteger(views) || views < 0 || !dateOk(p && p.date)
+        || String(p && p.content || '').length > 512 * 1024) return res.redirect(adminUrl('/settings?import=err'));
+      postIds.add(id);
+    }
+    if (contentBytes > 16 * 1024 * 1024) return res.redirect(adminUrl('/settings?import=err'));
+    for (const c of data.comments) {
+      const id = Number(c && c.id);
+      const postId = Number(c && c.postId);
+      if (!Number.isSafeInteger(id) || id <= 0 || commentIds.has(id)
+        || !Number.isSafeInteger(postId) || !postIds.has(postId) || !dateOk(c && c.date)) {
+        return res.redirect(adminUrl('/settings?import=err'));
+      }
+      commentIds.add(id);
+    }
+    for (const sub of data.subscribers || []) {
+      const email = str(sub && sub.email, 120).toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !dateOk(sub && sub.date)) {
+        return res.redirect(adminUrl('/settings?import=err'));
+      }
+    }
     try {
       tx(() => {
         db.exec('DELETE FROM post_visitors; DELETE FROM posts; DELETE FROM comments; DELETE FROM cats; DELETE FROM tags; DELETE FROM subscribers;');
         db.exec("DELETE FROM sqlite_sequence WHERE name IN ('posts','comments');");
         const insP = db.prepare('INSERT INTO posts(id,title,cat,tags,date,status,views,content) VALUES(?,?,?,?,?,?,?,?)');
-        for (const p of data.posts.slice(0, 100000)) {
-          insP.run(Number(p.id) || null, str(p.title, 200) || '未命名随笔', str(p.cat, 40) || '未分类',
-            JSON.stringify(Array.isArray(p.tags) ? p.tags.map(t => str(t, 40)).filter(Boolean).slice(0, 20) : []),
+        for (const p of data.posts) {
+          insP.run(Number(p.id), str(p.title, 200) || '未命名随笔', str(p.cat, 40) || '未分类',
+            JSON.stringify(Array.isArray(p.tags) ? [...new Set(p.tags.map(t => str(t, 40)).filter(Boolean))].slice(0, 20) : []),
             dateOk(p.date), p.status === 'published' ? 'published' : 'draft',
-            Math.max(0, parseInt(p.views, 10) || 0), String(p.content == null ? '' : p.content));
+            Number(p.views), String(p.content == null ? '' : p.content));
         }
         const insC = db.prepare('INSERT INTO comments(id,post_id,author,date,status,text) VALUES(?,?,?,?,?,?)');
-        for (const c of data.comments.slice(0, 500000)) {
-          insC.run(Number(c.id) || null, Number(c.postId) || 0, str(c.author, 40) || '匿名',
+        for (const c of data.comments) {
+          insC.run(Number(c.id), Number(c.postId), str(c.author, 40) || '匿名',
             dateOk(c.date), ['pending', 'approved', 'spam'].includes(c.status) ? c.status : 'pending',
             str(c.text, 2000));
         }
@@ -439,11 +507,8 @@ function register(app) {
         data.cats.forEach((n, i) => { const v = str(n, 40); if (v) insCat.run(v, i); });
         const insTag = db.prepare('INSERT OR IGNORE INTO tags(name,pos) VALUES(?,?)');
         data.tags.forEach((n, i) => { const v = str(n, 40); if (v) insTag.run(v, i); });
-        if (Array.isArray(data.subscribers)) {
-          for (const sub of data.subscribers.slice(0, 100000)) {
-            const email = str(sub && sub.email, 120).toLowerCase();
-            if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) q.addSubscriber.run(email, dateOk(sub.date));
-          }
+        for (const sub of data.subscribers || []) {
+          q.addSubscriber.run(str(sub.email, 120).toLowerCase(), dateOk(sub.date));
         }
         if (data.settings && typeof data.settings === 'object') {
           const s = data.settings;

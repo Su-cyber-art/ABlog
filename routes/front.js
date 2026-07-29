@@ -3,17 +3,28 @@
 const fs = require('fs');
 const path = require('path');
 const { q, siteSettings, parseTags } = require('../lib/db');
-const { trackVisitor, trackArticleVisitor } = require('../lib/visitors');
+const { trackVisitor, trackArticleVisitor, shouldTrack } = require('../lib/visitors');
+const { SITE_URL } = require('../lib/config');
 const { mdToHtml, esc } = require('../lib/md');
 const view = require('../views/front');
 
 const SHOW_VIEWS = true; // 设计稿 props.showViews 默认值
 
-function today() { return new Date().toISOString().slice(0, 10); }
+function today() {
+  const d = new Date();
+  return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+}
 
 /** 站点对外基地址(优先 SITE_URL 环境变量) */
 function baseUrl(req) {
-  return (process.env.SITE_URL || ('http://' + (req.headers.host || 'localhost'))).replace(/\/$/, '');
+  if (SITE_URL) return SITE_URL;
+  try {
+    const url = new URL('http://' + String(req.headers.host || 'localhost'));
+    if (!url.hostname || url.username || url.password || url.pathname !== '/') throw new Error('invalid host');
+    return url.origin;
+  } catch (e) {
+    return 'http://localhost';
+  }
 }
 
 /** 各页共用的模板上下文 */
@@ -120,12 +131,13 @@ function register(app) {
   /* ── 文章详情 ── */
   app.get('/post/:id', (req, res) => {
     const id = /^\d+$/.test(req.params.id) ? Number(req.params.id) : null;
-    const post = id && q.postById.get(id);
+    const safeId = Number.isSafeInteger(id) && id > 0 ? id : null;
+    const post = safeId && q.postById.get(safeId);
     if (!post) return false;
     if (post.status !== 'published' && !req.isAdmin) return false; // 草稿仅登录后可预览
 
-    if (req.method !== 'HEAD') { // HEAD(爬虫探测)不计阅读
-      const visitor = post.status === 'published' ? trackVisitor(req, res, req.pathname) : null;
+    if (post.status === 'published' && shouldTrack(req)) {
+      const visitor = trackVisitor(req, res, req.pathname);
       q.bumpViews.run(post.id);
       post.views += 1;
       if (trackArticleVisitor(post.id, visitor)) post.unique_views += 1;
@@ -159,6 +171,7 @@ function register(app) {
         commentCount: comments.length
       },
       comments,
+      canComment: post.status === 'published',
       commented: req.query.commented === '1'
     }));
   });
@@ -166,7 +179,8 @@ function register(app) {
   /* 提交评论(落库为待审) */
   app.post('/post/:id/comment', (req, res) => {
     const id = /^\d+$/.test(req.params.id) ? Number(req.params.id) : null;
-    const post = id && q.postById.get(id);
+    const safeId = Number.isSafeInteger(id) && id > 0 ? id : null;
+    const post = safeId && q.postById.get(safeId);
     if (!post || post.status !== 'published') return false;
     const text = String(req.body.text || '').trim().slice(0, 2000);
     const name = String(req.body.name || '').trim().slice(0, 40) || '匿名';
@@ -210,11 +224,12 @@ function register(app) {
     const s = siteSettings();
     const base = baseUrl(req);
     const cdata = html => '<![CDATA[' + String(html).replace(/\]\]>/g, ']]]]><![CDATA[>') + ']]>';
+    const safeBase = esc(base);
     const items = q.publishedPosts.all().slice(0, 20).map(p => `
   <item>
     <title>${esc(p.title)}</title>
-    <link>${base}/post/${p.id}</link>
-    <guid isPermaLink="true">${base}/post/${p.id}</guid>
+    <link>${safeBase}/post/${p.id}</link>
+    <guid isPermaLink="true">${safeBase}/post/${p.id}</guid>
     <pubDate>${new Date(p.date + 'T00:00:00+08:00').toUTCString()}</pubDate>
     <category>${esc(p.cat)}</category>
     <description>${esc(excerptOf(p))}</description>
@@ -224,7 +239,7 @@ function register(app) {
 <rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/">
 <channel>
   <title>${esc(s.title)}</title>
-  <link>${base}</link>
+  <link>${safeBase}</link>
   <description>${esc(s.subtitle)}</description>
   <language>zh-cn</language>${items}
 </channel>
@@ -237,11 +252,11 @@ function register(app) {
   });
 
   app.get('/sitemap.xml', (req, res) => {
-    const base = baseUrl(req);
+    const base = esc(baseUrl(req));
     const stat = ['', '/archive', '/about'].map(p => `
   <url><loc>${base}${p}</loc></url>`).join('');
     const posts = q.publishedPosts.all().map(p => `
-  <url><loc>${base}/post/${p.id}</loc><lastmod>${p.date}</lastmod></url>`).join('');
+  <url><loc>${base}/post/${p.id}</loc><lastmod>${esc(p.date)}</lastmod></url>`).join('');
     res.text(`<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${stat}${posts}
 </urlset>`, 200, 'application/xml; charset=utf-8');

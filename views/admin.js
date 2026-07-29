@@ -411,10 +411,11 @@ function settings(ctx, d) {
           ${d.importResult === 'ok' ? '<span class="form-ok">导入完成。</span>' : ''}
           ${d.importResult === 'err' ? '<span class="form-ok" style="color:var(--color-neutral-600)">导入失败：备份内容无法识别。</span>' : ''}
         </div>
-        <form method="post" action="${ADMIN_PATH}/import" data-confirm="导入将覆盖现有全部文章、评论、分类标签与订阅者；文章独立访客数会重新开始统计，确定继续？">
+        <form method="post" action="${ADMIN_PATH}/import" enctype="multipart/form-data" data-confirm="导入将覆盖现有全部文章、评论、分类标签与订阅者；文章独立访客数会重新开始统计，确定继续？">
           <div class="field" style="margin-bottom:10px">
-            <label>恢复备份（粘贴备份文件的 JSON 内容）</label>
-            <textarea class="input" name="payload" rows="4" placeholder='{"app":"mo-blog", …}'></textarea>
+            <label>恢复备份（选择导出的 JSON 文件，或粘贴内容）</label>
+            <input class="input" type="file" name="backup" accept="application/json,.json">
+            <textarea class="input" name="payload" rows="4" placeholder='{"app":"mo-blog", …}' style="margin-top:8px"></textarea>
           </div>
           <button class="btn btn-secondary" type="submit">导入并覆盖</button>
         </form>

@@ -116,9 +116,30 @@ test('HEAD 请求可用且不计阅读数', async () => {
   assert.ok(Number(m2[1]) - Number(m1[1]) <= 2);
 });
 
-test('gzip 生效', async () => {
-  const r = await request(srv.base, 'GET', '/', { headers: { 'Accept-Encoding': 'gzip' } });
+test('gzip 协商尊重大小写与 q=0', async () => {
+  const r = await request(srv.base, 'GET', '/', { headers: { 'Accept-Encoding': 'GZIP' } });
   assert.equal(r.headers['content-encoding'], 'gzip');
+  assert.match(r.headers.vary, /Accept-Encoding/i);
+  const refused = await request(srv.base, 'GET', '/', { headers: { 'Accept-Encoding': 'gzip;q=0' } });
+  assert.equal(refused.headers['content-encoding'], undefined);
+  assert.match(refused.headers.vary, /Accept-Encoding/i);
+});
+
+test('站点地图不会反射恶意 Host XML', async () => {
+  const r = await request(srv.base, 'GET', '/sitemap.xml', {
+    headers: { Host: 'victim.example</loc><loc>https://evil.example' }
+  });
+  assert.doesNotMatch(r.body, /evil\.example/);
+  assert.match(r.body, /http:\/\/localhost/);
+});
+
+test('过大公开表单返回 413 且服务保持可用', async () => {
+  const oversized = await request(srv.base, 'POST', '/subscribe', {
+    body: 'email=' + 'a'.repeat(70 * 1024),
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+  });
+  assert.equal(oversized.status, 413);
+  assert.equal((await request(srv.base, 'GET', '/healthz')).status, 200);
 });
 
 test('安全响应头齐全', async () => {

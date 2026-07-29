@@ -57,15 +57,13 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 
 ## 快速开始
 
-1. 安装 [Node.js](https://nodejs.org)(需要 **22.5 或更高版本**,建议直接装 LTS)
+1. 安装 [Node.js](https://nodejs.org)（支持 **22.13+ 的 22.x，或 23.4+**；建议直接安装最新 LTS）
 2. 双击 `start.bat`(或在本目录执行 `node server.js`)
 3. 浏览器打开:
    - 前台 <http://localhost:3000>
    - 后台 <http://localhost:3000/admin>
 
-**后台初始密码:`mo-admin`** —— 登录后请在「站点设置」里改掉。
-
-> 启动时若看到 `ExperimentalWarning: SQLite is an experimental feature` 属正常提示,不影响使用。
+首次初始化若未设置 `ADMIN_PASSWORD`，终端会生成并显示一条随机后台密码。请立即保存，并在登录后通过「站点设置」修改。服务默认只监听 `127.0.0.1`；需要局域网或公网直连时显式设置 `HOST`，公网部署必须使用 HTTPS 反向代理。
 
 ## 功能
 
@@ -87,7 +85,7 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 - 评论管理:待审/已通过/垃圾,通过/标垃圾/删除
 - 订阅者:名单查看、单条移除、一键导出 CSV
 - 访客管理:独立访客列表、最后访问 IP、可信归属地与旗帜、访问次数、最后页面;支持单条或全部清理
-- 站点设置:站点名称、副标题、作者署名、页脚文字、每页文章数、关于页照片、修改后台密码、**数据备份导出/导入**、恢复示例数据
+- 站点设置:站点名称、副标题、作者署名、页脚文字、每页文章数、关于页照片、修改后台密码、**JSON 数据备份导出/文件导入**、恢复示例数据
 
 **性能与安全**
 
@@ -117,7 +115,7 @@ VISITOR_COUNTRY_HEADER=cf-ipcountry
 npm test        # 等价于 node --test,零依赖
 ```
 
-覆盖前台/后台/单元共 53 项:页面渲染、分页、草稿权限、搜索、归档筛选、评论审核、
+覆盖前台、后台、单元和安装器场景:页面渲染、分页、草稿权限、搜索、归档筛选、评论审核、
 分类标签、订阅、独立访客、可信归属地、照片上传、安装器菜单、动作选择、最新版本校验与缓存、备份恢复、登录限速、改密下线、Markdown 渲染与安全。CI 见 `.github/workflows/test.yml`。
 
 ## 目录结构
@@ -155,14 +153,14 @@ Ablog/
 - **换端口**:`set PORT=8080 && node server.js`(PowerShell:`$env:PORT=8080; node server.js`)
 - **换后台路径**:登录后台的「站点设置」输入新的单段路径并保存。Linux systemd 部署会自动重启；手工执行 `node server.js` 时请自行重启。首次手工部署也可使用 `ADMIN_PATH=/manage_7f3a node server.js`(PowerShell:`$env:ADMIN_PATH='/manage_7f3a'; node server.js`)。
 - **备份**:运行中的 SQLite 使用 WAL，不能只复制 `blog.db`。优先用后台 JSON 导出内容；需要完整迁移时先停服务，再整体复制 `data/`（或 `ABLOG_DATA_DIR`）及其中的 `uploads/`，随后再启动服务。后台 JSON 不包含访客 IP、访客记录、密码和照片文件
-- **重置一切**:删除 `data/` 文件夹后重启(密码也会重置为 `mo-admin`)
+- **重置一切**:删除 `data/` 文件夹后重启（密码会重新随机生成并显示在终端）
 - **忘记密码**:删除 `data/` 文件夹重启(会连数据一起重置,先备份 `blog.db`;或用 SQLite 工具删掉 `settings` 表里 `admin_pass` 那行再重启)
 - **订阅邮箱**:访客提交的邮箱存在 `subscribers` 表里(系统不发信,导出后可自行群发)
 
 ## 部署到公网(可选)
 
-Linux 服务器推荐使用上方的二进制一键部署。手动部署时,任何能跑 Node ≥22.5 的主机都可以:`node server.js` 即可,数据默认在 `data/blog.db`;可通过 `ABLOG_DATA_DIR` 指定独立数据目录。
-建议前面加一层 Nginx/Caddy 做 HTTPS,并设置环境变量 `SITE_URL=https://你的域名`(用于 RSS 链接)。
+Linux 服务器推荐使用上方的二进制一键部署。手动部署时，使用 Node 22.13+（22.x）或 23.4+ 执行 `node server.js` 即可；数据默认在 `data/blog.db`，也可通过 `ABLOG_DATA_DIR` 指定独立的非静态数据目录（不能放在 `public/` 内）。服务默认监听 `127.0.0.1`；需要对外绑定时显式设置 `HOST`。
+公网部署必须在前面使用 Nginx/Caddy 提供 HTTPS,并设置环境变量 `SITE_URL=https://你的域名`（仅允许协议、主机和可选端口）。反向代理应覆盖客户端传入的转发头，并将 Node 端口限制为仅本机或可信网络可达。
 首次部署前可同时设置强密码和后台路径:`ADMIN_PASSWORD=你的密码 ADMIN_PATH=/manage_7f3a node server.js`。密码仅在数据库首次初始化时生效；后台路径默认从环境变量读取，后台设置修改后会保存到数据目录并在下次启动时优先使用。
 
 维护者推送 `v*` 标签后,GitHub Actions 会自动生成 Linux x64/ARM64 二进制包和 SHA-256 校验文件:

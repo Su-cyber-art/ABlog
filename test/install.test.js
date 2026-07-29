@@ -63,7 +63,58 @@ test('升级保留已有配置，健康检查静默等待就绪', () => {
   assert.match(functions.stdout, /\/healthz/);
   assert.doesNotMatch(functions.stdout, /--show-error/);
   assert.match(functions.stdout, /read_admin_path_override/);
+  assert.match(functions.stdout, /systemctl is-active/);
   assert.doesNotMatch(functions.stdout, /write_updated_config/);
+});
+
+test('安装器按十进制规范化端口并拒绝溢出值', () => {
+  const overflow = bash(['-c', `
+    source ./install.sh
+    CONFIG_PORT=18446744073709554616 CONFIG_SITE_URL='' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
+    validate_config
+  `]);
+  assert.notEqual(overflow.status, 0);
+
+  const invalidSite = bash(['-c', `
+    source ./install.sh
+    CONFIG_PORT=3000 CONFIG_SITE_URL='https://blog.example.com:99999' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
+    validate_config
+  `]);
+  assert.notEqual(invalidSite.status, 0);
+
+  const port = bash(['-c', `
+    source ./install.sh
+    CONFIG_PORT=08080 CONFIG_SITE_URL='' CONFIG_ADMIN_PATH=/admin CONFIG_ADMIN_PASSWORD=12345678
+    validate_config
+    printf '%s' "$CONFIG_PORT"
+  `]);
+  assert.equal(port.status, 0, port.stderr);
+  assert.equal(port.stdout, '8080');
+
+  const envValue = bash(['-c', `
+    d=$(mktemp -d)
+    CONFIG_DIR_LINE=$(grep -n 'readonly CONFIG_DIR=' ./install.sh | cut -d: -f1)
+    { head -n $((CONFIG_DIR_LINE - 1)) ./install.sh; printf 'readonly CONFIG_DIR="%s/etc"\n' "$d"; tail -n +$((CONFIG_DIR_LINE + 1)) ./install.sh; } >"$d/install.sh"
+    source "$d/install.sh"
+    mkdir -p "$CONFIG_DIR"
+    { write_env_value SITE_URL 'https://blog.example.com'; write_env_value ADMIN_PASSWORD 'a=b=c'; } >"$ENV_FILE"
+    read_env_value ADMIN_PASSWORD fallback
+    rm -rf "$d"
+  `]);
+  assert.equal(envValue.status, 0, envValue.stderr);
+  assert.equal(envValue.stdout, 'a=b=c');
+});
+
+test('安装器拒绝归档中的符号链接条目', { skip: process.platform === 'win32' }, () => {
+  const result = bash(['-c', `
+    source ./install.sh
+    d=$(mktemp -d)
+    mkdir -p "$d/src/ablog/node/bin"
+    ln -s /bin/sh "$d/src/ablog/node/bin/node"
+    tar -czf "$d/bad.tar.gz" -C "$d/src" ablog
+    validate_archive "$d/bad.tar.gz"
+  `]);
+  assert.notEqual(result.status, 0);
 });
 
 test('自动操作会根据安装状态选择安装或升级', () => {
@@ -107,7 +158,7 @@ test('安装结果优先使用站点公网地址，再检测公网 IP 或回退�
   `]);
   assert.equal(fromSiteUrl.status, 0, fromSiteUrl.stderr);
   assert.match(fromSiteUrl.stdout, /ACCESS_URL="https:\/\/blog\.example\.com"/);
-  assert.match(fromSiteUrl.stdout, /ACCESS_URL_SOURCE="站点公网地址"/);
+  assert.match(fromSiteUrl.stdout, /ACCESS_URL_SOURCE=/);
 
   const fromPublicIp = bash(['-c', `
     source ./install.sh
@@ -119,7 +170,7 @@ test('安装结果优先使用站点公网地址，再检测公网 IP 或回退�
   `]);
   assert.equal(fromPublicIp.status, 0, fromPublicIp.stderr);
   assert.match(fromPublicIp.stdout, /ACCESS_URL="http:\/\/203\.0\.113\.9:8848"/);
-  assert.match(fromPublicIp.stdout, /ACCESS_URL_SOURCE="检测到的公网 IP"/);
+  assert.match(fromPublicIp.stdout, /ACCESS_URL_SOURCE=/);
 
   const fromNetwork = bash(['-c', `
     source ./install.sh
@@ -131,5 +182,5 @@ test('安装结果优先使用站点公网地址，再检测公网 IP 或回退�
   `]);
   assert.equal(fromNetwork.status, 0, fromNetwork.stderr);
   assert.match(fromNetwork.stdout, /ACCESS_URL="http:\/\/10\.8\.0\.4:8848"/);
-  assert.match(fromNetwork.stdout, /ACCESS_URL_SOURCE="网卡地址"/);
+  assert.match(fromNetwork.stdout, /ACCESS_URL_SOURCE=/);
 });

@@ -7,7 +7,7 @@ const os = require('os');
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { mdToHtml } = require('../lib/md');
-const { normalizeAdminPath } = require('../lib/config');
+const { normalizeAdminPath, normalizeSiteUrl, assertPrivateDataDir } = require('../lib/config');
 
 test('标题/引用/列表/分隔线', () => {
   assert.match(mdToHtml('# 一'), /<h1/);
@@ -72,6 +72,26 @@ test('normalizeAdminPath 接受合法、拒绝非法与保留字', () => {
   assert.throws(() => normalizeAdminPath('/post'));
   assert.throws(() => normalizeAdminPath('/search'));
   assert.throws(() => normalizeAdminPath('/uploads'));
+});
+
+test('SITE_URL 只接受规范站点源，数据目录不能位于 public 内', () => {
+  assert.equal(normalizeSiteUrl('https://blog.example.com/'), 'https://blog.example.com');
+  assert.throws(() => normalizeSiteUrl('https://blog.example.com/path'));
+  assert.throws(() => normalizeSiteUrl('https://blog.example.com/?x=1'));
+  assert.throws(() => normalizeSiteUrl('https://user:pass@blog.example.com'));
+  assert.throws(() => assertPrivateDataDir(path.join(__dirname, '..', 'public', 'data')));
+  assert.doesNotThrow(() => assertPrivateDataDir(path.join(os.tmpdir(), 'ablog-private-data')));
+});
+
+test('无效端口在数据库初始化前失败', () => {
+  const dataDir = path.join(os.tmpdir(), 'ablog-invalid-port-' + process.pid + '-' + Date.now());
+  const result = require('child_process').spawnSync(process.execPath, ['server.js'], {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, PORT: 'not-a-port', ABLOG_DATA_DIR: dataDir },
+    encoding: 'utf8'
+  });
+  assert.notEqual(result.status, 0);
+  assert.equal(fs.existsSync(dataDir), false);
 });
 
 test('后台保存的路径在下次启动时覆盖初始环境变量', () => {

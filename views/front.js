@@ -118,7 +118,7 @@ ${postNav}
     <section class="comments" id="comments">
       <h3 class="comments-h">评论 <span class="count">（${art.commentCount}）</span></h3>${list}
 
-      <div class="comment-form">
+      ${d.canComment ? `<div class="comment-form">
         <div class="cf-kicker">留言</div>
         <form method="post" action="/post/${art.id}/comment">
           <div class="field cf-field">
@@ -134,7 +134,7 @@ ${postNav}
             ${commented ? '<span class="form-ok">已提交，审核通过后会显示在这里。</span>' : ''}
           </div>
         </form>
-      </div>
+      </div>` : '<p class="no-comments">草稿预览不开放评论。</p>'}
     </section>
 
     <div class="back-row"><a href="/">← 返回首页</a></div>

@@ -13,10 +13,13 @@ readonly ENV_FILE="${CONFIG_DIR}/ablog.env"
 readonly SERVICE_FILE="/etc/systemd/system/ablog.service"
 readonly SERVICE_USER="ablog"
 readonly SERVICE_GROUP="ablog"
+readonly INSTALL_MARKER="${CONFIG_DIR}/installer-owned"
+readonly UNIT_MARKER="# Managed by ABlog installer"
 
 TEMP_DIR=""
 OLD_RELEASE=""
 NEW_RELEASE=""
+OLD_UNIT_BACKUP=""
 GENERATED_PASSWORD=""
 CONFIG_PORT=""
 CONFIG_SITE_URL=""
@@ -45,8 +48,10 @@ die() {
 }
 
 cleanup() {
-  if [[ -n "${TEMP_DIR}" && -d "${TEMP_DIR}" ]]; then
+  if [[ "${TEMP_DIR}" == /tmp/ablog.* && -d "${TEMP_DIR}" ]]; then
     rm -rf -- "${TEMP_DIR}"
+  elif [[ -n "${TEMP_DIR}" ]]; then
+    log "拒绝清理异常临时目录: ${TEMP_DIR}" >&2
   fi
 }
 trap cleanup EXIT
@@ -60,7 +65,7 @@ require_root() {
 require_commands() {
   local command_name
   for command_name in \
-    awk chown chmod curl date getent groupadd id install journalctl ln mktemp mv od readlink rm \
+    awk chown chmod curl date getent grep groupadd id install journalctl ln mktemp mv od readlink rm \
     sha256sum sleep systemctl tar tr uname useradd; do
     command -v "${command_name}" >/dev/null 2>&1 || die "缺少命令: ${command_name}"
   done
@@ -97,6 +102,13 @@ is_installed() {
 has_ablog_artifacts() {
   [[ -e "${INSTALL_ROOT}" || -L "${CURRENT_LINK}" || -f "${SERVICE_FILE}" \
     || -f "${ENV_FILE}" || -d "${DATA_DIR}" ]] || id -u "${SERVICE_USER}" >/dev/null 2>&1
+}
+
+is_managed_service_file() {
+  [[ -f "${SERVICE_FILE}" && ! -L "${SERVICE_FILE}" ]] || return 1
+  grep -Fxq "${UNIT_MARKER}" "${SERVICE_FILE}" && return 0
+  grep -Fq 'WorkingDirectory=/opt/ablog/current/app' "${SERVICE_FILE}" \
+    && grep -Fq 'ExecStart=/opt/ablog/current/node/bin/node /opt/ablog/current/app/server.js' "${SERVICE_FILE}"
 }
 
 installation_status() {
@@ -290,7 +302,8 @@ config_error() {
 }
 
 validate_config() {
-  [[ "${CONFIG_PORT}" =~ ^[0-9]+$ ]] || config_error "PORT 必须是数字" || return
+  [[ "${CONFIG_PORT}" =~ ^[0-9]+$ && ${#CONFIG_PORT} -le 5 ]] || config_error "PORT 必须是数字" || return
+  CONFIG_PORT="$((10#${CONFIG_PORT}))"
   ((CONFIG_PORT >= 1024 && CONFIG_PORT <= 65535)) || config_error "PORT 必须在 1024 到 65535 之间" || return
 
   CONFIG_ADMIN_PATH="$(normalize_admin_path "${CONFIG_ADMIN_PATH}")" || {
@@ -299,10 +312,14 @@ validate_config() {
   }
 
   if [[ -n "${CONFIG_SITE_URL}" ]]; then
-    [[ "${CONFIG_SITE_URL}" =~ ^https?://[^[:space:]]+$ ]] || {
-      config_error "SITE_URL 必须以 http:// 或 https:// 开头"
+    [[ "${CONFIG_SITE_URL}" =~ ^https?://([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(:([0-9]{1,5}))?/?$ ]] || {
+      config_error "SITE_URL 必须是仅含协议、主机和可选端口的 HTTP(S) 地址"
       return 1
     }
+    if [[ -n "${BASH_REMATCH[5]:-}" ]] && ((10#${BASH_REMATCH[5]} < 1 || 10#${BASH_REMATCH[5]} > 65535)); then
+      config_error "SITE_URL 端口必须在 1 到 65535 之间"
+      return 1
+    fi
     CONFIG_SITE_URL="${CONFIG_SITE_URL%/}"
   fi
 
@@ -392,15 +409,18 @@ download_release() {
     base_url="https://github.com/${REPOSITORY}/releases/download/${VERSION}"
   fi
 
-  TEMP_DIR="$(mktemp -d)"
+  TEMP_DIR="$(TMPDIR=/tmp mktemp -d /tmp/ablog.XXXXXXXX)" || die "无法创建临时目录"
+  [[ "${TEMP_DIR}" == /tmp/ablog.* && -d "${TEMP_DIR}" ]] || die "临时目录无效"
   archive="${TEMP_DIR}/${asset}"
   checksum="${archive}.sha256"
 
   log "下载 ${asset} (${VERSION})"
   curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+    --connect-timeout 10 --speed-limit 1024 --speed-time 30 --max-time 600 \
     --output "${archive}" "${base_url}/${asset}" ||
     die "下载发布包失败；请确认仓库已有对应的 GitHub Release"
   curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
+    --connect-timeout 10 --speed-limit 128 --speed-time 15 --max-time 60 \
     --output "${checksum}" "${base_url}/${asset}.sha256" ||
     die "下载校验文件失败"
 
@@ -410,13 +430,14 @@ download_release() {
   [[ "${actual,,}" == "${expected,,}" ]] || die "发布包 SHA-256 校验失败"
 
   validate_archive "${archive}"
-  tar -xzf "${archive}" -C "${TEMP_DIR}"
-  [[ -x "${TEMP_DIR}/ablog/node/bin/node" ]] || die "发布包缺少 Node.js 可执行文件"
-  [[ -f "${TEMP_DIR}/ablog/app/server.js" ]] || die "发布包缺少 ABlog 服务入口"
+  tar --no-same-owner --no-same-permissions -xzf "${archive}" -C "${TEMP_DIR}"
+  [[ -x "${TEMP_DIR}/ablog/node/bin/node" && ! -L "${TEMP_DIR}/ablog/node/bin/node" ]] || die "发布包缺少安全的 Node.js 可执行文件"
+  [[ -f "${TEMP_DIR}/ablog/app/server.js" && ! -L "${TEMP_DIR}/ablog/app/server.js" ]] || die "发布包缺少安全的 ABlog 服务入口"
+  "${TEMP_DIR}/ablog/node/bin/node" --version >/dev/null 2>&1 || die "发布包内 Node.js 与当前 Linux 系统不兼容"
 }
 
 validate_archive() {
-  local archive member normalized
+  local archive member normalized entry_type
   archive="$1"
 
   while IFS= read -r member; do
@@ -434,16 +455,36 @@ validate_archive() {
         ;;
     esac
   done < <(tar -tzf "${archive}")
+
+  while IFS= read -r entry_type; do
+    case "${entry_type:0:1}" in
+      -|d) ;;
+      *) die "发布包只能包含普通文件和目录" ;;
+    esac
+  done < <(tar -tvzf "${archive}")
 }
 
 ensure_service_account() {
-  local nologin
+  local nologin user_exists='0' group_exists='0' legacy_owned='0'
 
-  if ! getent group "${SERVICE_GROUP}" >/dev/null; then
-    groupadd --system "${SERVICE_GROUP}"
+  getent group "${SERVICE_GROUP}" >/dev/null && group_exists='1'
+  id -u "${SERVICE_USER}" >/dev/null 2>&1 && user_exists='1'
+  if [[ -L "${CURRENT_LINK}" && -f "${ENV_FILE}" && -f "${SERVICE_FILE}" ]] \
+    && grep -Fq 'WorkingDirectory=/opt/ablog/current/app' "${SERVICE_FILE}" \
+    && grep -Fq 'ExecStart=/opt/ablog/current/node/bin/node /opt/ablog/current/app/server.js' "${SERVICE_FILE}"; then
+    legacy_owned='1'
+  fi
+  if [[ ("${user_exists}" == '1' || "${group_exists}" == '1') && ! -f "${INSTALL_MARKER}" && "${legacy_owned}" != '1' ]]; then
+    die "检测到非安装器创建的 ${SERVICE_USER} 用户或组，为避免权限冲突已停止"
+  fi
+  if [[ "${user_exists}" != "${group_exists}" ]]; then
+    die "${SERVICE_USER} 用户与组状态不一致，请先手动检查"
   fi
 
-  if ! id -u "${SERVICE_USER}" >/dev/null 2>&1; then
+  if [[ "${group_exists}" == '0' ]]; then
+    groupadd --system "${SERVICE_GROUP}"
+  fi
+  if [[ "${user_exists}" == '0' ]]; then
     nologin="$(command -v nologin || true)"
     [[ -n "${nologin}" ]] || nologin="/usr/sbin/nologin"
     useradd --system \
@@ -453,7 +494,14 @@ ensure_service_account() {
       "${SERVICE_USER}"
   fi
 
+  install -d -m 0755 "${CONFIG_DIR}"
+  if [[ ! -f "${INSTALL_MARKER}" ]]; then
+    (umask 077; printf 'service-account=%s\n' "${SERVICE_USER}" >"${INSTALL_MARKER}")
+  fi
+  chown root:root "${INSTALL_MARKER}"
+  chmod 0600 "${INSTALL_MARKER}"
   install -d -o "${SERVICE_USER}" -g "${SERVICE_GROUP}" -m 0750 "${DATA_DIR}"
+  chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${DATA_DIR}"
 }
 
 write_env_value() {
@@ -466,10 +514,16 @@ write_env_value() {
 }
 
 read_env_value() {
-  local name fallback value
+  local name fallback line value
   name="$1"
   fallback="$2"
-  value="$(awk -F= -v key="${name}" '$1 == key { gsub(/^"|"$/, "", $2); print $2; exit }' "${ENV_FILE}")"
+  line="$(awk -v key="${name}=" 'index($0, key) == 1 { print; exit }' "${ENV_FILE}")"
+  value="${line#*=}"
+  if [[ "${value}" == \"*\" ]]; then
+    value="${value:1:${#value}-2}"
+    value="${value//\\\"/\"}"
+    value="${value//\\\\/\\}"
+  fi
   printf '%s' "${value:-${fallback}}"
 }
 
@@ -495,7 +549,10 @@ effective_admin_path() {
 write_initial_config() {
   install -d -m 0755 "${CONFIG_DIR}"
 
-  if [[ -f "${ENV_FILE}" ]]; then
+  if [[ -e "${ENV_FILE}" ]]; then
+    [[ -f "${ENV_FILE}" && ! -L "${ENV_FILE}" ]] || die "现有配置必须是普通文件: ${ENV_FILE}"
+    chown root:root "${ENV_FILE}"
+    chmod 0600 "${ENV_FILE}"
     log "保留现有配置 ${ENV_FILE}"
     return
   fi
@@ -532,7 +589,22 @@ install_release() {
 }
 
 write_systemd_unit() {
-  cat >"${SERVICE_FILE}" <<'EOF'
+  local temp_unit="${SERVICE_FILE}.tmp.$$" legacy_unit='0'
+  if [[ -f "${SERVICE_FILE}" ]] \
+    && grep -Fq 'WorkingDirectory=/opt/ablog/current/app' "${SERVICE_FILE}" \
+    && grep -Fq 'ExecStart=/opt/ablog/current/node/bin/node /opt/ablog/current/app/server.js' "${SERVICE_FILE}"; then
+    legacy_unit='1'
+  fi
+  if [[ -e "${SERVICE_FILE}" ]] && ! grep -Fxq "${UNIT_MARKER}" "${SERVICE_FILE}" && [[ "${legacy_unit}" != '1' ]]; then
+    die "检测到非 ABlog 管理的同名 systemd 单元: ${SERVICE_FILE}"
+  fi
+  [[ ! -L "${SERVICE_FILE}" ]] || die "systemd 单元不能是符号链接: ${SERVICE_FILE}"
+  if [[ -f "${SERVICE_FILE}" ]]; then
+    OLD_UNIT_BACKUP="${TEMP_DIR}/ablog.service.previous"
+    cp -p "${SERVICE_FILE}" "${OLD_UNIT_BACKUP}"
+  fi
+  cat >"${temp_unit}" <<EOF
+${UNIT_MARKER}
 [Unit]
 Description=ABlog personal blog
 Wants=network-online.target
@@ -560,14 +632,30 @@ ReadWritePaths=/var/lib/ablog
 [Install]
 WantedBy=multi-user.target
 EOF
-  chmod 0644 "${SERVICE_FILE}"
+  chmod 0644 "${temp_unit}"
+  mv -f "${temp_unit}" "${SERVICE_FILE}"
 }
 
 rollback_release() {
+  local rollback_failed='0'
+  if [[ -n "${OLD_UNIT_BACKUP}" && -f "${OLD_UNIT_BACKUP}" ]]; then
+    cp -p "${OLD_UNIT_BACKUP}" "${SERVICE_FILE}" || rollback_failed='1'
+  elif [[ -z "${OLD_RELEASE}" ]]; then
+    rm -f -- "${SERVICE_FILE}" || rollback_failed='1'
+  fi
   if [[ -n "${OLD_RELEASE}" && -d "${OLD_RELEASE}" ]]; then
     log "新版本启动失败，恢复上一版本"
-    ln -sfn "${OLD_RELEASE}" "${CURRENT_LINK}"
-    systemctl restart ablog.service >/dev/null 2>&1 || true
+    ln -sfn "${OLD_RELEASE}" "${CURRENT_LINK}" || rollback_failed='1'
+    systemctl daemon-reload >/dev/null 2>&1 || rollback_failed='1'
+    systemctl restart ablog.service >/dev/null 2>&1 || rollback_failed='1'
+  elif [[ -n "${NEW_RELEASE}" ]]; then
+    rm -f -- "${CURRENT_LINK}" || rollback_failed='1'
+  fi
+  [[ -z "${NEW_RELEASE}" ]] || rm -rf -- "${NEW_RELEASE}" || rollback_failed='1'
+  NEW_RELEASE=''
+  if [[ "${rollback_failed}" == '1' ]]; then
+    log "回滚未完全成功，请立即检查 systemd 与 ${CURRENT_LINK}" >&2
+    return 1
   fi
 }
 
@@ -575,25 +663,24 @@ start_service() {
   local port attempt
   port="$(read_env_value "PORT" "3000")"
 
-  systemctl daemon-reload
-  systemctl enable ablog.service >/dev/null
+  systemctl daemon-reload || return 1
+  systemctl enable ablog.service >/dev/null || return 1
   if ! systemctl restart ablog.service; then
-    rollback_release
     journalctl -u ablog.service -n 30 --no-pager >&2 || true
-    die "ABlog 服务启动失败"
+    return 1
   fi
 
   for attempt in {1..20}; do
-    if curl --fail --silent --connect-timeout 1 --max-time 2 \
-      "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1; then
+    if systemctl is-active --quiet ablog.service \
+      && curl --fail --silent --connect-timeout 1 --max-time 2 \
+        "http://127.0.0.1:${port}/healthz" >/dev/null 2>&1; then
       return
     fi
     sleep 1
   done
 
-  rollback_release
   journalctl -u ablog.service -n 30 --no-pager >&2 || true
-  die "ABlog 服务未通过本机健康检查"
+  return 1
 }
 
 is_ipv4() {
@@ -721,8 +808,12 @@ deploy_ablog() {
   ensure_service_account
   write_initial_config
   install_release
-  write_systemd_unit
-  start_service
+  if ! write_systemd_unit || ! start_service; then
+    if rollback_release; then
+      die "部署失败，已恢复原版本"
+    fi
+    die "部署与回滚均失败，请立即检查服务状态"
+  fi
   print_result
 }
 
@@ -763,21 +854,31 @@ uninstall_ablog() {
     fi
   fi
 
-  systemctl disable --now ablog.service >/dev/null 2>&1 || true
+  if [[ -e "${SERVICE_FILE}" ]] && ! is_managed_service_file; then
+    die "同名 systemd 单元不属于 ABlog 安装器，拒绝停止或删除"
+  fi
+  if systemctl is-active --quiet ablog.service; then
+    systemctl stop ablog.service || die "ABlog 服务无法停止，未删除任何文件"
+    systemctl is-active --quiet ablog.service && die "ABlog 服务仍在运行，未删除任何文件"
+  fi
+  systemctl disable ablog.service >/dev/null 2>&1 || true
   rm -f -- "${SERVICE_FILE}"
   systemctl daemon-reload
   systemctl reset-failed ablog.service >/dev/null 2>&1 || true
   rm -rf -- "${INSTALL_ROOT}"
 
   if [[ "${purge_data}" == '1' ]]; then
-    rm -rf -- "${CONFIG_DIR}" "${DATA_DIR}"
-    if id -u "${SERVICE_USER}" >/dev/null 2>&1 && command -v userdel >/dev/null 2>&1; then
-      userdel "${SERVICE_USER}" || log "未能删除服务账号 ${SERVICE_USER}，请手动检查"
+    local installer_owned='0' purge_message='已卸载 ABlog，并已删除数据和配置'
+    [[ -f "${INSTALL_MARKER}" ]] && installer_owned='1'
+    if [[ "${installer_owned}" == '1' ]]; then
+      command -v userdel >/dev/null 2>&1 || die "缺少 userdel，尚未删除数据和服务账号"
+      command -v groupdel >/dev/null 2>&1 || die "缺少 groupdel，尚未删除数据和服务组"
+      if id -u "${SERVICE_USER}" >/dev/null 2>&1; then userdel "${SERVICE_USER}" || die "未能删除服务账号，数据和配置仍保留"; fi
+      if getent group "${SERVICE_GROUP}" >/dev/null; then groupdel "${SERVICE_GROUP}" || die "未能删除服务组，数据和配置仍保留"; fi
+      purge_message='已卸载 ABlog，并已删除数据、配置及安装器创建的服务账号'
     fi
-    if getent group "${SERVICE_GROUP}" >/dev/null && command -v groupdel >/dev/null 2>&1; then
-      groupdel "${SERVICE_GROUP}" || log "未能删除服务组 ${SERVICE_GROUP}，请手动检查"
-    fi
-    log "已卸载 ABlog，并已删除数据、配置和服务账号"
+    rm -rf -- "${DATA_DIR}" "${CONFIG_DIR}"
+    log "${purge_message}"
   else
     log "已卸载 ABlog；数据、配置和服务账号已保留"
     printf '  保留数据: %s\n' "${DATA_DIR}"

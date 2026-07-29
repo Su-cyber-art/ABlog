@@ -72,7 +72,14 @@ if [[ -f "${PROJECT_ROOT}/LICENSE" ]]; then
   cp "${PROJECT_ROOT}/LICENSE" "${TEMP_DIR}/package/ablog/app/"
 fi
 
-tar -C "${TEMP_DIR}/package" -czf "${OUTPUT_DIR}/${ASSET}" ablog
+BUILD_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "${PROJECT_ROOT}" log -1 --format=%ct 2>/dev/null || true)}"
+BUILD_EPOCH="${BUILD_EPOCH:-0}"
+[[ "${BUILD_EPOCH}" =~ ^[0-9]+$ ]] || { printf 'SOURCE_DATE_EPOCH must be a non-negative integer\n' >&2; exit 2; }
+readonly BUILD_EPOCH
+find "${TEMP_DIR}/package" -exec touch -h -d "@${BUILD_EPOCH}" {} +
+tar -C "${TEMP_DIR}/package" --sort=name --format=gnu \
+  --mtime="@${BUILD_EPOCH}" --owner=0 --group=0 --numeric-owner \
+  -cf - ablog | gzip -n -9 >"${OUTPUT_DIR}/${ASSET}"
 (
   cd "${OUTPUT_DIR}"
   sha256sum "${ASSET}" >"${ASSET}.sha256"

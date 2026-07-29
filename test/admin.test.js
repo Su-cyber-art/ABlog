@@ -96,14 +96,17 @@ test('删除标签会清除文章上的引用', async () => {
   assert.doesNotMatch(post.body, /archive\?tag=%E9%9B%A8"/);
 });
 
-test('订阅者管理与 CSV 导出', async () => {
+test('订阅者管理与 CSV 导出会禁用公式单元格', async () => {
   const cookies = await login(srv.base);
   await request(srv.base, 'POST', '/subscribe', { form: { email: 'csv@test.cn' } });
+  await request(srv.base, 'POST', '/subscribe', { form: { email: '=2+5@example.com' } });
   const page = await request(srv.base, 'GET', '/admin/subscribers', { cookies });
   assert.match(page.body, /csv@test\.cn/);
   const csv = await request(srv.base, 'GET', '/admin/subscribers.csv', { cookies });
   assert.match(csv.headers['content-disposition'], /\.csv/);
+  assert.equal(csv.headers['cache-control'], 'no-store');
   assert.match(csv.body, /csv@test\.cn/);
+  assert.match(csv.body, /'=2\+5@example\.com/);
 });
 
 test('访客管理展示最后 IP 和本地网络归属', async () => {
@@ -148,6 +151,19 @@ test('自定义后台路径可访问，旧 /admin 不暴露后台', async () => 
     assert.equal(oldPath.status, 404);
   } finally {
     custom.stop();
+  }
+});
+
+test('HTTPS 站点配置会给会话 Cookie 添加 Secure', async () => {
+  const secure = await startServer({ SITE_URL: 'https://blog.example.com' });
+  try {
+    await secure.ready;
+    const logged = await request(secure.base, 'POST', '/admin/login', {
+      form: { password: 'test-pass-123' }, headers: { Origin: 'https://blog.example.com' }
+    });
+    assert.match((logged.headers['set-cookie'] || []).join(';'), /; Secure;/);
+  } finally {
+    secure.stop();
   }
 });
 
@@ -252,6 +268,62 @@ test('设置页可上传关于页照片，拒绝伪造图片', async () => {
   assert.match(rejected.location, /photo=err/);
 });
 
+test('无效新密码不会部分保存站点设置', async () => {
+  const cookies = await login(srv.base);
+  const rejected = await request(srv.base, 'POST', '/admin/settings', {
+    cookies,
+    form: { title: '不应保存', subtitle: 'bad', author: 'bad', footer: 'bad', perPage: '9', adminPath: '/admin', newPassword: 'short' }
+  });
+  assert.equal(rejected.status, 400);
+  const page = await request(srv.base, 'GET', '/admin/settings', { cookies });
+  assert.doesNotMatch(page.body, /不应保存/);
+  assert.match(page.body, /一册记录日常的随笔/);
+});
+
+test('畸形 multipart 不会重置站点设置', async () => {
+  const cookies = await login(srv.base);
+  await request(srv.base, 'POST', '/admin/settings', {
+    cookies,
+    form: { title: '保留标题', subtitle: 'keep', author: '作者', footer: '页脚', perPage: '5', adminPath: '/admin' }
+  });
+  const bad = await request(srv.base, 'POST', '/admin/settings', {
+    cookies,
+    body: 'garbage',
+    headers: { 'Content-Type': 'multipart/form-data; boundary=x' }
+  });
+  assert.equal(bad.status, 400);
+  const page = await request(srv.base, 'GET', '/admin/settings', { cookies });
+  assert.match(page.body, /保留标题/);
+  assert.match(page.body, /keep/);
+});
+
+test('导入拒绝不安全 ID、孤儿评论和未知 schema，且保留原数据', async () => {
+  const cookies = await login(srv.base);
+  const original = JSON.parse((await request(srv.base, 'GET', '/admin/export', { cookies })).body);
+  const variants = [
+    { ...original, schema: 999 },
+    { ...original, posts: [{ ...original.posts[0], id: Number.MAX_SAFE_INTEGER + 1 }], comments: [] },
+    { ...original, comments: [{ ...original.comments[0], postId: 999999 }] }
+  ];
+  for (const data of variants) {
+    const r = await request(srv.base, 'POST', '/admin/import', { cookies, form: { payload: JSON.stringify(data) } });
+    assert.match(r.location, /import=err/);
+  }
+  const after = JSON.parse((await request(srv.base, 'GET', '/admin/export', { cookies })).body);
+  assert.equal(after.posts.length, original.posts.length);
+  assert.equal((await request(srv.base, 'GET', '/')).status, 200);
+});
+
+test('导入拒绝非法订阅日期且保留原数据', async () => {
+  const cookies = await login(srv.base);
+  const original = JSON.parse((await request(srv.base, 'GET', '/admin/export', { cookies })).body);
+  const bad = { ...original, subscribers: [{ email: 'reader@example.com', date: '2026-99-99' }] };
+  const result = await request(srv.base, 'POST', '/admin/import', { cookies, form: { payload: JSON.stringify(bad) } });
+  assert.match(result.location, /import=err/);
+  const after = JSON.parse((await request(srv.base, 'GET', '/admin/export', { cookies })).body);
+  assert.equal(after.posts.length, original.posts.length);
+});
+
 test('备份导出与导入恢复', async () => {
   const cookies = await login(srv.base);
   const visitor = await request(srv.base, 'GET', '/post/1');
@@ -271,6 +343,24 @@ test('备份导出与导入恢复', async () => {
   // JSON 不携带文章去重基线，导入后同一 cookie 的第一次阅读从 1 重新计数，不能伪装成 2。
   const afterImport = await request(srv.base, 'GET', '/post/1', { cookies: visitor.cookies });
   assert.match(afterImport.body, /1 位独立访客/);
+});
+
+test('清空访客会同步重置文章独立访客基线', async () => {
+  const visitor = await request(srv.base, 'GET', '/post/6');
+  assert.match(visitor.body, /1 位独立访客/);
+  const cookies = await login(srv.base);
+  await request(srv.base, 'POST', '/admin/visitors/clear', { cookies });
+  const revisited = await request(srv.base, 'GET', '/post/6', { cookies: visitor.cookies });
+  assert.match(revisited.body, /1 位独立访客/);
+});
+
+test('草稿预览不增加阅读且不显示评论表单', async () => {
+  const cookies = await login(srv.base);
+  const first = await request(srv.base, 'GET', '/post/8', { cookies });
+  const second = await request(srv.base, 'GET', '/post/8', { cookies });
+  assert.match(first.body, /0 次阅读/);
+  assert.match(second.body, /0 次阅读/);
+  assert.doesNotMatch(second.body, /action="\/post\/8\/comment"/);
 });
 
 test('改密后旧会话失效、新密码可登录', async () => {
