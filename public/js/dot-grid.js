@@ -23,6 +23,9 @@
   var width = 0;
   var height = 0;
   var dpr = 1;
+  var cell = 34;
+  var scrollX = 0;
+  var scrollY = 0;
   var frameId = 0;
   var resizeId = 0;
   var lastFrame = 0;
@@ -35,6 +38,14 @@
     lastTime: 0,
     vx: 0,
     vy: 0
+  };
+  var touch = {
+    active: false,
+    identifier: null,
+    startX: 0,
+    startY: 0,
+    started: 0,
+    moved: false
   };
 
   var readColor = function (name, fallback) {
@@ -53,16 +64,21 @@
 
   var baseColor = readColor('--color-text', { r: 32, g: 31, b: 29 });
   var activeColor = readColor('--color-accent', { r: 182, g: 130, b: 53 });
-  var motionEnabled = function () { return !reducedMotion.matches && !coarsePointer.matches; };
+  var motionEnabled = function () { return !reducedMotion.matches; };
   var clamp = function (value, min, max) { return Math.max(min, Math.min(max, value)); };
+  var phase = function (value) { return ((value % cell) + cell) % cell; };
 
   var draw = function (now, update) {
     context.clearRect(0, 0, width, height);
-    var proximity = width <= 740 ? 112 : 148;
+    var proximity = coarsePointer.matches || width <= 740 ? 112 : 148;
+    var offsetX = -phase(scrollX);
+    var offsetY = -phase(scrollY);
     var maxMotion = 0;
 
     for (var i = 0; i < dots.length; i++) {
       var dot = dots[i];
+      var baseX = dot.x + offsetX;
+      var baseY = dot.y + offsetY;
       var targetX = 0;
       var targetY = 0;
       var intensity = 0;
@@ -71,8 +87,8 @@
       var distance;
 
       if (pointer.active) {
-        dx = dot.x - pointer.x;
-        dy = dot.y - pointer.y;
+        dx = baseX - pointer.x;
+        dy = baseY - pointer.y;
         distance = Math.hypot(dx, dy);
         if (distance < proximity) {
           var near = 1 - distance / proximity;
@@ -89,8 +105,8 @@
         var wave = waves[w];
         var age = (now - wave.started) / 820;
         if (age >= 1) continue;
-        dx = dot.x - wave.x;
-        dy = dot.y - wave.y;
+        dx = baseX - wave.x;
+        dy = baseY - wave.y;
         distance = Math.hypot(dx, dy);
         var ring = age * 260;
         var band = 42;
@@ -119,7 +135,7 @@
       var alpha = 0.11 + mix * 0.55;
       var radius = 1.15 + mix * 0.65;
       context.beginPath();
-      context.arc(dot.x + dot.ox, dot.y + dot.oy, radius, 0, Math.PI * 2);
+      context.arc(baseX + dot.ox, baseY + dot.oy, radius, 0, Math.PI * 2);
       context.fillStyle = 'rgba(' + red + ',' + green + ',' + blue + ',' + alpha + ')';
       context.fill();
     }
@@ -149,22 +165,22 @@
   var build = function () {
     width = Math.max(1, window.innerWidth);
     height = Math.max(1, window.innerHeight);
+    scrollX = window.scrollX || window.pageXOffset || 0;
+    scrollY = window.scrollY || window.pageYOffset || 0;
     dpr = Math.min(2, window.devicePixelRatio || 1);
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
     context.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    var cell = width <= 740 ? 30 : 34;
-    var columns = Math.ceil(width / cell) + 1;
-    var rows = Math.ceil(height / cell) + 1;
-    var startX = (width - (columns - 1) * cell) / 2;
-    var startY = (height - (rows - 1) * cell) / 2;
+    cell = width <= 740 ? 30 : 34;
+    var columns = Math.ceil(width / cell) + 2;
+    var rows = Math.ceil(height / cell) + 2;
     dots = [];
     for (var row = 0; row < rows; row++) {
       for (var column = 0; column < columns; column++) {
         dots.push({
-          x: startX + column * cell,
-          y: startY + row * cell,
+          x: column * cell,
+          y: row * cell,
           ox: 0,
           oy: 0,
           vx: 0,
@@ -175,19 +191,29 @@
     draw(performance.now(), false);
   };
 
-  var onPointerMove = function (event) {
-    if (!motionEnabled() || (event.pointerType && !['mouse', 'pen'].includes(event.pointerType))) return;
+  var updatePointer = function (x, y, withVelocity) {
     var now = performance.now();
     var elapsed = pointer.lastTime ? Math.max(8, now - pointer.lastTime) : 16;
-    pointer.vx = pointer.lastTime ? (event.clientX - pointer.lastX) / elapsed : 0;
-    pointer.vy = pointer.lastTime ? (event.clientY - pointer.lastY) / elapsed : 0;
-    pointer.x = event.clientX;
-    pointer.y = event.clientY;
-    pointer.lastX = event.clientX;
-    pointer.lastY = event.clientY;
+    pointer.vx = withVelocity && pointer.lastTime ? (x - pointer.lastX) / elapsed : 0;
+    pointer.vy = withVelocity && pointer.lastTime ? (y - pointer.lastY) / elapsed : 0;
+    pointer.x = x;
+    pointer.y = y;
+    pointer.lastX = x;
+    pointer.lastY = y;
     pointer.lastTime = now;
     pointer.active = true;
     start();
+  };
+
+  var addWave = function (x, y) {
+    waves.push({ x: x, y: y, started: performance.now() });
+    if (waves.length > 3) waves.shift();
+    start();
+  };
+
+  var onPointerMove = function (event) {
+    if (!motionEnabled() || (event.pointerType && !['mouse', 'pen'].includes(event.pointerType))) return;
+    updatePointer(event.clientX, event.clientY, true);
   };
 
   var clearPointer = function () {
@@ -201,9 +227,59 @@
   var onPointerDown = function (event) {
     if (!motionEnabled() || event.button !== 0
       || (event.pointerType && !['mouse', 'pen'].includes(event.pointerType))) return;
-    waves.push({ x: event.clientX, y: event.clientY, started: performance.now() });
-    if (waves.length > 3) waves.shift();
-    start();
+    addWave(event.clientX, event.clientY);
+  };
+
+  var findTouch = function (list) {
+    for (var i = 0; i < list.length; i++) {
+      if (list[i].identifier === touch.identifier) return list[i];
+    }
+    return null;
+  };
+
+  var onTouchStart = function (event) {
+    if (!motionEnabled() || touch.active || !event.changedTouches.length) return;
+    var point = event.changedTouches[0];
+    touch.active = true;
+    touch.identifier = point.identifier;
+    touch.startX = point.clientX;
+    touch.startY = point.clientY;
+    touch.started = performance.now();
+    touch.moved = false;
+    pointer.lastTime = 0;
+    updatePointer(point.clientX, point.clientY, false);
+  };
+
+  var onTouchMove = function (event) {
+    if (!motionEnabled() || !touch.active) return;
+    var point = findTouch(event.touches);
+    if (!point) return;
+    if (Math.hypot(point.clientX - touch.startX, point.clientY - touch.startY) > 10) {
+      touch.moved = true;
+    }
+    updatePointer(point.clientX, point.clientY, true);
+  };
+
+  var finishTouch = function (event, cancelled) {
+    if (!touch.active) return;
+    var point = findTouch(event.changedTouches);
+    if (!point && !cancelled) return;
+    if (!cancelled && !touch.moved && performance.now() - touch.started < 500) {
+      addWave(point.clientX, point.clientY);
+    }
+    touch.active = false;
+    touch.identifier = null;
+    clearPointer();
+  };
+
+  var onScroll = function () {
+    var nextX = window.scrollX || window.pageXOffset || 0;
+    var nextY = window.scrollY || window.pageYOffset || 0;
+    if (nextX === scrollX && nextY === scrollY) return;
+    scrollX = nextX;
+    scrollY = nextY;
+    if (motionEnabled()) start();
+    else draw(performance.now(), false);
   };
 
   var onResize = function () {
@@ -228,6 +304,11 @@
 
   window.addEventListener('pointermove', onPointerMove, { passive: true });
   window.addEventListener('pointerdown', onPointerDown, { passive: true });
+  window.addEventListener('touchstart', onTouchStart, { passive: true });
+  window.addEventListener('touchmove', onTouchMove, { passive: true });
+  window.addEventListener('touchend', function (event) { finishTouch(event, false); }, { passive: true });
+  window.addEventListener('touchcancel', function (event) { finishTouch(event, true); }, { passive: true });
+  window.addEventListener('scroll', onScroll, { passive: true });
   window.addEventListener('mouseout', function (event) {
     if (!event.relatedTarget) clearPointer();
   });
