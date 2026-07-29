@@ -4,6 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const http = require('http');
+const zlib = require('zlib');
 
 /** 交给系统选择可绑定端口，避开 Windows 动态排除端口段 */
 function availablePort() {
@@ -117,10 +118,61 @@ function multipart(fields = {}, files = []) {
   };
 }
 
+let crcTable;
+function crc32(data) {
+  if (!crcTable) {
+    crcTable = Array.from({ length: 256 }, (_, n) => {
+      let value = n;
+      for (let i = 0; i < 8; i++) value = (value & 1) ? (0xedb88320 ^ (value >>> 1)) : (value >>> 1);
+      return value >>> 0;
+    });
+  }
+  let crc = 0xffffffff;
+  for (const byte of data) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function pngChunk(type, data) {
+  const name = Buffer.from(type, 'ascii');
+  const chunk = Buffer.alloc(12 + data.length);
+  chunk.writeUInt32BE(data.length, 0);
+  name.copy(chunk, 4);
+  data.copy(chunk, 8);
+  chunk.writeUInt32BE(crc32(Buffer.concat([name, data])), 8 + data.length);
+  return chunk;
+}
+
+/** 生成真实 RGBA PNG，供站点图标等图片上传测试使用。 */
+function makePng(width, height, color = [182, 130, 53, 255]) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = 6;
+  const raw = Buffer.alloc((width * 4 + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const row = y * (width * 4 + 1);
+    raw[row] = 0;
+    for (let x = 0; x < width; x++) {
+      const pixel = row + 1 + x * 4;
+      raw[pixel] = color[0];
+      raw[pixel + 1] = color[1];
+      raw[pixel + 2] = color[2];
+      raw[pixel + 3] = color[3];
+    }
+  }
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk('IHDR', ihdr),
+    pngChunk('IDAT', zlib.deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0))
+  ]);
+}
+
 /** 登录并返回会话 cookie */
 async function login(base, password = 'test-pass-123', adminPath = '/admin') {
   const r = await request(base, 'POST', adminPath + '/login', { form: { password } });
   return r.cookies;
 }
 
-module.exports = { startServer, request, multipart, login };
+module.exports = { startServer, request, multipart, makePng, login };

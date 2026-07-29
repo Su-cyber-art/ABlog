@@ -19,7 +19,7 @@ function head(ctx, pageTitle) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)}</title>
-<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="${esc(s.faviconUrl || '/favicon.svg')}" type="${esc(s.faviconType || 'image/svg+xml')}">
 <link rel="alternate" type="application/rss+xml" title="${esc(s.title)} · RSS" href="/feed.xml">
 <link rel="stylesheet" href="/css/fonts.css">
 <link rel="stylesheet" href="/css/site.css">

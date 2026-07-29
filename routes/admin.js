@@ -8,7 +8,7 @@ const {
 } = require('../lib/auth');
 const { mdToHtml } = require('../lib/md');
 const { ADMIN_PATH, IS_SYSTEMD_MANAGED, adminUrl, normalizeAdminPath, saveAdminPathOverride } = require('../lib/config');
-const { savePortrait, removePortrait } = require('../lib/media');
+const { savePortrait, removePortrait, saveFavicon, removeFavicon } = require('../lib/media');
 const { countryFlag, VISITOR_RETENTION_DAYS } = require('../lib/visitors');
 const view = require('../views/admin');
 
@@ -194,7 +194,13 @@ function register(app) {
 
   app.post(adminUrl('/cats/add'), guard((req, res) => {
     const n = String(req.body.name || '').trim().slice(0, 40);
-    if (n) q.addCat.run(n);
+    const returnToSettings = req.body.returnTo === 'settings';
+    const exists = n === '未分类' || q.cats.all().some(row => row.name === n);
+    if (n && !exists) q.addCat.run(n);
+    if (returnToSettings) {
+      const result = !n ? 'err' : (exists ? 'exists' : 'added');
+      return res.redirect(adminUrl('/settings?category=' + result));
+    }
     res.redirect(adminUrl('/taxonomy'));
   }));
 
@@ -339,6 +345,8 @@ function register(app) {
       pwChanged: req.query.pw === '1',
       importResult: ['ok', 'err'].includes(req.query.import) ? req.query.import : null,
       photoError: req.query.photo === 'err',
+      faviconResult: ['saved', 'default', 'err'].includes(req.query.favicon) ? req.query.favicon : null,
+      categoryResult: ['added', 'exists', 'err'].includes(req.query.category) ? req.query.category : null,
       adminPath: ADMIN_PATH,
       adminPathChanged,
       adminPathError: req.query.adminPath === 'err',
@@ -402,6 +410,32 @@ function register(app) {
     if (restartScheduled) {
       setTimeout(() => process.emit('ablog:restart'), 750).unref();
     }
+  }));
+
+  app.post(adminUrl('/favicon'), guard((req, res) => {
+    const uploads = req.files || [];
+    const files = uploads.filter(file => file.name === 'favicon');
+    if (uploads.length !== 1 || files.length !== 1) {
+      return res.json({ error: '请选择并裁切一张图标。' }, 400);
+    }
+    try {
+      saveFavicon(files[0]);
+    } catch (e) {
+      console.error('[默·博客] 站点图标上传失败:', e.message);
+      return res.json({ error: '图标未保存，请重新选择图片并裁切。' }, 400);
+    }
+    const s = siteSettings();
+    res.json({ ok: true, url: s.faviconUrl, type: s.faviconType });
+  }));
+
+  app.post(adminUrl('/favicon/remove'), guard((req, res) => {
+    try {
+      removeFavicon();
+    } catch (e) {
+      console.error('[默·博客] 恢复默认站点图标失败:', e.message);
+      return res.redirect(adminUrl('/settings?favicon=err'));
+    }
+    res.redirect(adminUrl('/settings?favicon=default'));
   }));
 
   app.post(adminUrl('/reset'), guard((req, res) => {

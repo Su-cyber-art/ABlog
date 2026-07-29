@@ -5,7 +5,7 @@ const { test, beforeEach, afterEach } = require('node:test');
 const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
-const { startServer, request, multipart, login } = require('./helpers');
+const { startServer, request, multipart, makePng, login } = require('./helpers');
 
 let srv;
 beforeEach(async () => { srv = await startServer(); await srv.ready; });
@@ -245,6 +245,27 @@ test('站点设置拒绝保留的后台路径且不写入覆盖配置', async ()
   assert.equal(fs.existsSync(path.join(srv.dataDir, 'admin-path.json')), false);
 });
 
+test('站点设置可新增文章分类并立即用于写作', async () => {
+  const cookies = await login(srv.base);
+  const added = await request(srv.base, 'POST', '/admin/cats/add', {
+    cookies, form: { name: '技术随记', returnTo: 'settings' }
+  });
+  assert.equal(added.status, 302);
+  assert.match(added.location, /\/admin\/settings\?category=added/);
+
+  const settings = await request(srv.base, 'GET', added.location, { cookies });
+  assert.match(settings.body, /分类已新增/);
+  assert.match(settings.body, /name="returnTo" value="settings"/);
+
+  const editor = await request(srv.base, 'GET', '/admin/editor', { cookies });
+  assert.match(editor.body, /<option value="技术随记">技术随记<\/option>/);
+
+  const duplicate = await request(srv.base, 'POST', '/admin/cats/add', {
+    cookies, form: { name: '技术随记', returnTo: 'settings' }
+  });
+  assert.match(duplicate.location, /category=exists/);
+});
+
 test('设置页可上传关于页照片，拒绝伪造图片', async () => {
   const cookies = await login(srv.base);
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL9KgAAAABJRU5ErkJggg==', 'base64');
@@ -272,6 +293,76 @@ test('设置页可上传关于页照片，拒绝伪造图片', async () => {
     headers: { 'Content-Type': bad.contentType }
   });
   assert.match(rejected.location, /photo=err/);
+});
+
+test('站点图标确认后持久化、刷新版本并可恢复默认', async () => {
+  const cookies = await login(srv.base);
+  const settings = await request(srv.base, 'GET', '/admin/settings', { cookies });
+  assert.match(settings.body, /id="favicon-crop"/);
+  assert.match(settings.body, /image\/svg\+xml/);
+
+  const uploadIcon = async png => {
+    const upload = multipart({}, [{
+      name: 'favicon', filename: 'favicon.png', contentType: 'image/png', data: png
+    }]);
+    return request(srv.base, 'POST', '/admin/favicon', {
+      cookies,
+      body: upload.body,
+      headers: { 'Content-Type': upload.contentType }
+    });
+  };
+
+  const first = await uploadIcon(makePng(256, 256));
+  assert.equal(first.status, 200);
+  const firstResult = JSON.parse(first.body);
+  assert.equal(firstResult.ok, true);
+  assert.match(firstResult.url, /^\/uploads\/favicon\.png\?v=[a-z0-9-]+$/);
+  assert.equal(firstResult.type, 'image/png');
+  assert.equal(fs.existsSync(path.join(srv.dataDir, 'uploads', 'favicon.png')), true);
+
+  const home = await request(srv.base, 'GET', '/');
+  assert.match(home.body, new RegExp(`rel="icon" href="${firstResult.url.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}" type="image/png"`));
+  const image = await request(srv.base, 'GET', firstResult.url);
+  assert.match(image.headers['content-type'], /image\/png/);
+  assert.match(image.headers['cache-control'], /max-age=3600/);
+
+  const second = await uploadIcon(makePng(256, 256, [32, 31, 29, 255]));
+  assert.equal(second.status, 200);
+  const secondResult = JSON.parse(second.body);
+  assert.notEqual(secondResult.url, firstResult.url);
+
+  const wrongSize = await uploadIcon(makePng(32, 32));
+  assert.equal(wrongSize.status, 400);
+  const rawSvg = multipart({}, [{
+    name: 'favicon', filename: 'favicon.svg', contentType: 'image/svg+xml',
+    data: Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"></svg>')
+  }]);
+  const rejectedSvg = await request(srv.base, 'POST', '/admin/favicon', {
+    cookies,
+    body: rawSvg.body,
+    headers: { 'Content-Type': rawSvg.contentType }
+  });
+  assert.equal(rejectedSvg.status, 400);
+
+  const extraFile = multipart({}, [
+    { name: 'favicon', filename: 'favicon.png', contentType: 'image/png', data: makePng(256, 256) },
+    { name: 'extra', filename: 'extra.txt', contentType: 'text/plain', data: Buffer.from('extra') }
+  ]);
+  const rejectedExtra = await request(srv.base, 'POST', '/admin/favicon', {
+    cookies,
+    body: extraFile.body,
+    headers: { 'Content-Type': extraFile.contentType }
+  });
+  assert.equal(rejectedExtra.status, 400);
+
+  const removed = await request(srv.base, 'POST', '/admin/favicon/remove', { cookies });
+  assert.equal(removed.status, 302);
+  assert.match(removed.location, /favicon=default/);
+  assert.equal(fs.existsSync(path.join(srv.dataDir, 'uploads', 'favicon.png')), false);
+  const restoredSettings = await request(srv.base, 'GET', removed.location, { cookies });
+  assert.match(restoredSettings.body, /已恢复默认图标，缓存版本已刷新/);
+  const restored = await request(srv.base, 'GET', '/');
+  assert.match(restored.body, /rel="icon" href="\/favicon\.svg" type="image\/svg\+xml"/);
 });
 
 test('无效新密码不会部分保存站点设置', async () => {

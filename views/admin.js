@@ -371,6 +371,7 @@ function settings(ctx, d) {
   const portrait = s.portraitUrl
     ? `<img class="settings-portrait" src="${esc(s.portraitUrl)}" alt="当前作者照片">`
     : '<div class="settings-portrait-empty">尚未上传照片</div>';
+  const favicon = `<img id="favicon-current" src="${esc(s.faviconUrl)}" alt="当前站点图标">`;
   return adminTop(ctx, 'settings', '站点设置') + `
     <div class="settings-col settings-wide">
       <h2 class="page-title" style="margin-bottom:24px">站点设置</h2>
@@ -404,8 +405,78 @@ function settings(ctx, d) {
       </form>
 
       <div class="settings-reset">
+        <h4>文章分类</h4>
+        <p class="note">新增后会立即出现在写作页的分类下拉框；删除分类和管理标签请前往「<a href="${ADMIN_PATH}/taxonomy">分类与标签</a>」。</p>
+        <form class="tax-add settings-category-add" method="post" action="${ADMIN_PATH}/cats/add">
+          <input type="hidden" name="returnTo" value="settings">
+          <input class="input" name="name" maxlength="40" placeholder="新分类名称" required>
+          <button class="btn btn-primary" type="submit">新增分类</button>
+        </form>
+        ${d.categoryResult === 'added' ? '<p class="form-ok">分类已新增，可直接前往写作。</p>' : ''}
+        ${d.categoryResult === 'exists' ? '<p class="form-ok">这个分类已经存在。</p>' : ''}
+        ${d.categoryResult === 'err' ? '<p class="form-ok" style="color:var(--color-neutral-600)">请输入有效的分类名称。</p>' : ''}
+      </div>
+
+      <div class="settings-reset settings-favicon-section">
+        <h4>站点图标</h4>
+        <p class="note">支持 SVG、JPEG、PNG 和 WebP，最大 5 MiB。图片在浏览器内裁切并转换为安全的方形 PNG，确认后才会上传。</p>
+        <div class="favicon-settings-grid">
+          <div class="favicon-current">
+            <span>当前图标</span>
+            ${favicon}
+            <small>${s.faviconCustom ? '自定义' : '默认'}</small>
+          </div>
+          <div class="favicon-control">
+            <form id="favicon-form" method="post" action="${ADMIN_PATH}/favicon" enctype="multipart/form-data" data-return-url="${ADMIN_PATH}/settings">
+              <div class="field">
+                <label for="favicon-file">选择图片</label>
+                <input class="input" id="favicon-file" type="file" accept=".svg,image/svg+xml,image/jpeg,image/png,image/webp">
+              </div>
+              <div class="favicon-editor" id="favicon-editor" hidden>
+                <div class="favicon-workspace">
+                  <div>
+                    <span class="favicon-label">裁切区域</span>
+                    <canvas class="favicon-crop" id="favicon-crop" width="256" height="256" tabindex="0" aria-label="站点图标裁切区域，可拖动图片调整位置"></canvas>
+                    <p class="note">拖动图片调整位置，也可聚焦后使用方向键微调。</p>
+                  </div>
+                  <div class="favicon-preview-panel">
+                    <span class="favicon-label">标签页预览</span>
+                    <div class="favicon-tab-preview">
+                      <img id="favicon-preview-tab" alt="">
+                      <span>${esc(s.title)}</span>
+                    </div>
+                    <div class="favicon-size-preview" aria-label="常见图标尺寸预览">
+                      <span><img id="favicon-preview-32" alt="">32 px</span>
+                      <span><img id="favicon-preview-16" alt="">16 px</span>
+                    </div>
+                  </div>
+                </div>
+                <label class="favicon-zoom" for="favicon-zoom">
+                  <span>缩放</span>
+                  <input id="favicon-zoom" type="range" min="1" max="3" step="0.01" value="1">
+                </label>
+                <div class="favicon-actions">
+                  <button class="btn btn-secondary" id="favicon-center" type="button">重置裁切</button>
+                  <button class="btn btn-ghost muted" id="favicon-cancel" type="button">取消</button>
+                  <button class="btn btn-primary" id="favicon-upload" type="submit" disabled>确认并上传</button>
+                </div>
+              </div>
+              <p class="favicon-status" id="favicon-status" role="status" aria-live="polite">
+                ${d.faviconResult === 'saved' ? '站点图标已更新，缓存版本已刷新。' : ''}
+                ${d.faviconResult === 'default' ? '已恢复默认图标，缓存版本已刷新。' : ''}
+                ${d.faviconResult === 'err' ? '站点图标操作失败，请重试。' : ''}
+              </p>
+            </form>
+            ${s.faviconCustom ? `<form method="post" action="${ADMIN_PATH}/favicon/remove" data-confirm="恢复默认站点图标？">
+              <button class="btn btn-secondary" type="submit">恢复默认图标</button>
+            </form>` : ''}
+          </div>
+        </div>
+      </div>
+
+      <div class="settings-reset">
         <h4>数据备份</h4>
-        <p class="note">导出文章、评论、分类标签、订阅者与站点设置；不含密码、访客记录、IP 和照片文件。请单独备份数据目录内的 uploads 文件夹。</p>
+        <p class="note">导出文章、评论、分类标签、订阅者与站点设置；不含密码、访客记录、IP、照片和站点图标文件。请单独备份数据目录内的 uploads 文件夹。</p>
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
           <a class="btn btn-secondary" href="${ADMIN_PATH}/export">导出备份</a>
           ${d.importResult === 'ok' ? '<span class="form-ok">导入完成。</span>' : ''}

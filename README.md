@@ -86,7 +86,9 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 - 评论管理:待审/已通过/垃圾,通过/标垃圾/删除
 - 订阅者:名单查看、单条移除、一键导出 CSV
 - 访客管理:独立访客列表、最后访问 IP、可信归属地与旗帜、访问次数、最后页面;支持单条或全部清理
-- 站点设置:站点名称、副标题、作者署名、页脚文字、每页文章数、关于页照片、修改后台密码、**JSON 数据备份导出/文件导入**、恢复示例数据
+- 站点设置:站点名称、副标题、作者署名、页脚文字、每页文章数、文章分类新增、关于页照片、站点图标裁切上传、修改后台密码、**JSON 数据备份导出/文件导入**、恢复示例数据
+
+站点图标支持选择 SVG、JPEG、PNG 或 WebP（最大 5 MiB），在浏览器内自动居中裁切，可拖动、缩放并预览 32/16 px 效果；点击确认后统一转换为安全的 256 × 256 PNG，保存到数据目录并通过版本化 URL 立即刷新浏览器缓存。可随时恢复仓库内置的默认 `favicon.svg`。
 
 **性能与安全**
 
@@ -117,7 +119,7 @@ npm test        # 等价于 node --test,零依赖
 ```
 
 覆盖前台、后台、单元和安装器场景:页面渲染、分页、草稿权限、搜索、归档筛选、评论审核、
-分类标签、订阅、独立访客、可信归属地、照片上传、安装器菜单、动作选择、监听范围、随机密码、旧配置迁移、最新版本校验与缓存、备份恢复、登录限速、改密下线、Markdown 渲染与安全。CI 见 `.github/workflows/test.yml`。
+分类标签、订阅、独立访客、可信归属地、照片与站点图标上传、安装器菜单、动作选择、监听范围、随机密码、旧配置迁移、最新版本校验与缓存、备份恢复、登录限速、改密下线、Markdown 渲染与安全。CI 见 `.github/workflows/test.yml`。
 
 ## 目录结构
 
@@ -154,7 +156,7 @@ Ablog/
 - **换端口**:Windows CMD 使用 `set PORT=8080 && node server.js`，PowerShell 使用 `$env:PORT=8080; node server.js`，Bash 使用 `PORT=8080 node server.js`
 - **换监听范围**:Bash 使用 `HOST=0.0.0.0 node server.js` 允许局域网/公网直连，或使用 `HOST=127.0.0.1 node server.js` 仅供本机访问；PowerShell 对应设置 `$env:HOST='0.0.0.0'` 或 `$env:HOST='127.0.0.1'` 后运行 `node server.js`。Linux 一键部署请编辑 `/etc/ablog/ablog.env` 中的 `HOST`，然后执行 `sudo systemctl restart ablog`
 - **换后台路径**:登录后台的「站点设置」输入新的单段路径并保存。Linux systemd 部署会自动重启；手工执行 `node server.js` 时请自行重启。首次手工部署也可使用 `ADMIN_PATH=/manage_7f3a node server.js`(PowerShell:`$env:ADMIN_PATH='/manage_7f3a'; node server.js`)。
-- **备份**:运行中的 SQLite 使用 WAL，不能只复制 `blog.db`。优先用后台 JSON 导出内容；需要完整迁移时先停服务，再整体复制 `data/`（或 `ABLOG_DATA_DIR`）及其中的 `uploads/`，随后再启动服务。后台 JSON 不包含访客 IP、访客记录、密码和照片文件
+- **备份**:运行中的 SQLite 使用 WAL，不能只复制 `blog.db`。优先用后台 JSON 导出内容；需要完整迁移时先停服务，再整体复制 `data/`（或 `ABLOG_DATA_DIR`）及其中的 `uploads/`，随后再启动服务。后台 JSON 不包含访客 IP、访客记录、密码、照片和站点图标文件
 - **重置一切**:删除 `data/` 文件夹后重启（密码会重新随机生成并显示在终端）
 - **忘记密码**:删除 `data/` 文件夹重启(会连数据一起重置,先备份 `blog.db`;或用 SQLite 工具删掉 `settings` 表里 `admin_pass` 那行再重启)
 - **订阅邮箱**:访客提交的邮箱存在 `subscribers` 表里(系统不发信,导出后可自行群发)
