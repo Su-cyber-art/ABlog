@@ -199,7 +199,7 @@ function register(app) {
     let results = [];
     if (kw) {
       const like = '%' + kw.replace(/[\\%_]/g, ch => '\\' + ch) + '%';
-      results = q.searchPosts.all(like).map(p => ({
+      results = q.searchPosts.all(like, like, like).map(p => ({
         id: p.id,
         date: p.date.slice(5).replace('-', ' / '),
         title: p.title,
