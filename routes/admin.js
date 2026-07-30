@@ -10,21 +10,37 @@ const { mdToHtml } = require('../lib/md');
 const { ADMIN_PATH, IS_SYSTEMD_MANAGED, adminUrl, normalizeAdminPath, saveAdminPathOverride } = require('../lib/config');
 const { savePortrait, removePortrait, saveFavicon, removeFavicon } = require('../lib/media');
 const { countryFlag, VISITOR_RETENTION_DAYS } = require('../lib/visitors');
+const {
+  attachRequestI18n,
+  clientMessages,
+  isSupportedLocale,
+  safeLocalPath
+} = require('../lib/i18n');
 const view = require('../views/admin');
 
 function today() {
   const d = new Date();
   return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
 }
-const statusText = p => p.status === 'published' ? '已发布' : '草稿';
 const statusCls = p => 'tag ' + (p.status === 'published' ? 'tag-accent' : 'tag-neutral');
 
 function ctx(req) {
+  const s = siteSettings();
+  const { locale, t } = attachRequestI18n(req, s.locale);
   return {
-    s: siteSettings(),
+    s,
+    locale,
+    t,
     year: String(new Date().getFullYear()),
-    pendingN: Number(q.pendingCommentCount.get().count || 0)
+    pendingN: Number(q.pendingCommentCount.get().count || 0),
+    currentPath: safeLocalPath(req.url, ADMIN_PATH),
+    clientMessages: clientMessages(t)
   };
+}
+
+function requestText(req) {
+  if (!req.t) attachRequestI18n(req, getSetting('locale', 'zh-CN'));
+  return req.t;
 }
 
 /** 登录保护:未登录 → 跳登录页;已登录 → 执行处理器 */
@@ -42,9 +58,9 @@ function intId(s) {
   return Number.isSafeInteger(value) && value > 0 ? value : null;
 }
 function visitorKey(s) { return /^[a-f0-9]{64}$/.test(String(s || '')) ? String(s) : ''; }
-function formatVisitTime(value) {
+function formatVisitTime(value, locale) {
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { hour12: false });
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString(locale, { hour12: false });
 }
 
 function register(app) {
@@ -83,18 +99,26 @@ function register(app) {
     const all = q.allPosts.all();
     const pub = all.filter(p => p.status === 'published');
     const c = ctx(req);
+    const t = c.t;
     const visitorStats = q.visitorStats.get();
     res.html(view.dash(c, {
-      todayLine: new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }),
+      todayLine: new Date().toLocaleDateString(c.locale, { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }),
       statPub: pub.length,
       statDraft: all.length - pub.length,
       statPending: c.pendingN,
-      statViews: all.reduce((a, p) => a + (p.views || 0), 0).toLocaleString('en-US'),
-      statVisitors: Number(visitorStats.visitors || 0).toLocaleString('en-US'),
-      recentPosts: all.slice(0, 5).map(p => ({ id: p.id, title: p.title, statusCls: statusCls(p), statusText: statusText(p), date: p.date })),
+      statViews: all.reduce((a, p) => a + (p.views || 0), 0).toLocaleString(c.locale),
+      statVisitors: Number(visitorStats.visitors || 0).toLocaleString(c.locale),
+      retentionDays: VISITOR_RETENTION_DAYS,
+      recentPosts: all.slice(0, 5).map(p => ({
+        id: p.id,
+        title: p.title,
+        statusCls: statusCls(p),
+        statusText: t(p.status === 'published' ? 'common.published' : 'common.draft'),
+        date: p.date
+      })),
       pendingList: q.pendingCommentsLimited.all(50).map(cm => {
         const p = q.postById.get(cm.post_id);
-        return { id: cm.id, author: cm.author, text: cm.text, postTitle: p ? p.title : '（已删除）' };
+        return { id: cm.id, author: cm.author, text: cm.text, postTitle: p ? p.title : t('common.deleted') };
       })
     }));
   }));
@@ -102,18 +126,23 @@ function register(app) {
   /* ── 文章管理 ── */
   app.get(adminUrl('/posts'), guard((req, res) => {
     const all = q.allPosts.all();
-    const filter = ['全部', '已发布', '草稿'].includes(req.query.filter) ? req.query.filter : '全部';
-    res.html(view.posts(ctx(req), {
+    const aliases = { '已发布': 'published', '草稿': 'draft' };
+    const filter = ['published', 'draft'].includes(req.query.filter)
+      ? req.query.filter
+      : aliases[req.query.filter] || 'all';
+    const c = ctx(req);
+    res.html(view.posts(c, {
       filter,
       nAll: all.length,
       nPub: all.filter(p => p.status === 'published').length,
       nDraft: all.filter(p => p.status === 'draft').length,
       rows: all
-        .filter(p => filter === '全部' || (filter === '已发布' ? p.status === 'published' : p.status === 'draft'))
+        .filter(p => filter === 'all' || p.status === filter)
         .map(p => ({
           id: p.id, title: p.title, cat: p.cat,
           tagsText: parseTags(p).join(' · ') || '—',
-          statusCls: statusCls(p), statusText: statusText(p),
+          statusCls: statusCls(p),
+          statusText: c.t(p.status === 'published' ? 'common.published' : 'common.draft'),
           date: p.date, views: p.views || 0
         }))
     }));
@@ -127,9 +156,10 @@ function register(app) {
 
   /* ── 写作 ── */
   const renderEditor = (req, res, post, draft) => {
-    res.html(view.editor(ctx(req), {
+    const c = ctx(req);
+    res.html(view.editor(c, {
       editingId: post ? post.id : null,
-      heading: post ? '编辑随笔' : '写作',
+      heading: c.t(post ? 'admin.editor.editTitle' : 'admin.editor.writeTitle'),
       dStatus: draft.status,
       dTitle: draft.title, dCat: draft.cat, dTags: draft.tags, dContent: draft.content,
       catOptions: ['未分类'].concat(q.cats.all().map(r => r.name)),
@@ -153,15 +183,16 @@ function register(app) {
   }));
 
   app.post(adminUrl('/editor/save'), guard((req, res) => {
+    const t = requestText(req);
     const rawId = String(req.body.id || '');
     const id = intId(rawId);
     const status = req.body.action === 'publish' ? 'published' : 'draft';
-    const title = String(req.body.title || '').trim().slice(0, 200) || '未命名随笔';
+    const title = String(req.body.title || '').trim().slice(0, 200) || t('admin.editor.untitled');
     const cat = String(req.body.cat || '未分类').slice(0, 40);
     const content = String(req.body.content || '').replace(/\r\n/g, '\n');
     const tags = [...new Set(String(req.body.tags || '').split(/[,，]/)
       .map(t => t.trim().slice(0, 40)).filter(Boolean))].slice(0, 20);
-    if (Buffer.byteLength(content) > 512 * 1024) return res.text('文章正文 UTF-8 大小不能超过 512 KiB', 413);
+    if (Buffer.byteLength(content) > 512 * 1024) return res.text(t('admin.editor.bodyTooLarge'), 413);
 
     const existing = rawId ? (id && q.postById.get(id)) : null;
     if (rawId && !existing) {
@@ -178,7 +209,7 @@ function register(app) {
       }
     });
     const query = new URLSearchParams();
-    if (status === 'draft') query.set('filter', '草稿');
+    if (status === 'draft') query.set('filter', 'draft');
     query.set('savedDraft', rawId || 'new');
     res.redirect(adminUrl('/posts') + '?' + query.toString());
   }));
@@ -234,27 +265,29 @@ function register(app) {
 
   /* ── 评论管理 ── */
   app.get(adminUrl('/comments'), guard((req, res) => {
-    const filter = ['全部', '待审', '已通过', '垃圾'].includes(req.query.filter) ? req.query.filter : '全部';
-    const map = { '待审': 'pending', '已通过': 'approved', '垃圾': 'spam' };
+    const aliases = { '待审': 'pending', '已通过': 'approved', '垃圾': 'spam' };
+    const filter = ['pending', 'approved', 'spam'].includes(req.query.filter)
+      ? req.query.filter
+      : aliases[req.query.filter] || 'all';
     const all = q.commentsAll.all();
-    const cText = { pending: '待审', approved: '已通过', spam: '垃圾' };
     const cCls = { pending: 'tag tag-accent', approved: 'tag tag-outline', spam: 'tag tag-neutral' };
-    res.html(view.comments(ctx(req), {
+    const c = ctx(req);
+    res.html(view.comments(c, {
       filter,
       cnAll: all.length,
       cnPending: all.filter(c => c.status === 'pending').length,
       cnOk: all.filter(c => c.status === 'approved').length,
       cnSpam: all.filter(c => c.status === 'spam').length,
       rows: all
-        .filter(c => filter === '全部' || c.status === map[filter])
-        .map(c => {
-          const p = q.postById.get(c.post_id);
+        .filter(comment => filter === 'all' || comment.status === filter)
+        .map(comment => {
+          const p = q.postById.get(comment.post_id);
           return {
-            id: c.id, author: c.author, text: c.text, date: c.date,
+            id: comment.id, author: comment.author, text: comment.text, date: comment.date,
             postId: p ? p.id : null,
-            postTitle: p ? p.title : '（已删除）',
-            statusText: cText[c.status], statusCls: cCls[c.status],
-            canApprove: c.status !== 'approved', canSpam: c.status !== 'spam'
+            postTitle: p ? p.title : c.t('common.deleted'),
+            statusText: c.t(`common.${comment.status}`), statusCls: cCls[comment.status],
+            canApprove: comment.status !== 'approved', canSpam: comment.status !== 'spam'
           };
         })
     }));
@@ -297,19 +330,20 @@ function register(app) {
   /* ── 访客管理 ── */
   app.get(adminUrl('/visitors'), guard((req, res) => {
     const stats = q.visitorStats.get();
+    const c = ctx(req);
     const rows = q.listVisitors.all(200).map(row => ({
       key: row.visitor_key,
-      ip: row.last_ip || '未知',
+      ip: row.last_ip || c.t('common.unknown'),
       flag: countryFlag(row.country_code),
-      location: row.country_name || (row.country_code === 'LOCAL' ? '本地网络' : '未知'),
+      location: row.country_name || c.t(row.country_code === 'LOCAL' ? 'common.localNetwork' : 'common.unknown'),
       locationDetail: [row.region, row.city].filter(Boolean).join(' · '),
-      firstSeen: formatVisitTime(row.first_seen),
-      lastSeen: formatVisitTime(row.last_seen),
+      firstSeen: formatVisitTime(row.first_seen, c.locale),
+      lastSeen: formatVisitTime(row.last_seen, c.locale),
       pageViews: row.page_views || 0,
       visits: row.visit_count || 0,
       lastPath: row.last_path || '—'
     }));
-    res.html(view.visitors(ctx(req), {
+    res.html(view.visitors(c, {
       rows,
       visitorCount: Number(stats.visitors || 0),
       pageViews: Number(stats.page_views || 0),
@@ -355,6 +389,7 @@ function register(app) {
   }));
 
   app.post(adminUrl('/settings'), guard((req, res) => {
+    const t = requestText(req);
     let requestedAdminPath;
     try {
       const rawAdminPath = req.body.adminPath == null ? ADMIN_PATH : String(req.body.adminPath).trim();
@@ -364,10 +399,13 @@ function register(app) {
       return res.redirect(adminUrl('/settings?adminPath=err'));
     }
 
+    const currentLocale = siteSettings().locale;
+    const requestedLocale = req.body.locale == null ? currentLocale : String(req.body.locale);
+    if (!isSupportedLocale(requestedLocale)) return res.text(t('error.invalidLanguage'), 400);
     const pw = String(req.body.newPassword || '');
-    if (pw && (!pw.trim() || pw.length < 8 || pw.length > 200)) return res.text('新密码长度必须为 8 到 200 个字符，且不能全为空白', 400);
+    if (pw && (!pw.trim() || pw.length < 8 || pw.length > 200)) return res.text(t('admin.error.passwordLength'), 400);
     const portraitFiles = (req.files || []).filter(file => file.name === 'portrait');
-    if (portraitFiles.length > 1) return res.text('一次只能上传一张照片', 400);
+    if (portraitFiles.length > 1) return res.text(t('admin.error.onePhoto'), 400);
     const portrait = portraitFiles[0];
     try {
       if (portrait) savePortrait(portrait);
@@ -380,6 +418,7 @@ function register(app) {
     setSetting('subtitle', String(req.body.subtitle || '').slice(0, 120));
     setSetting('author', String(req.body.author || '').slice(0, 40));
     setSetting('footer', String(req.body.footer || '').slice(0, 120));
+    setSetting('locale', requestedLocale);
     setSetting('perPage', Math.min(20, Math.max(1, parseInt(req.body.perPage, 10) || 5)));
     let suffix = '';
     if (pw) {
@@ -413,16 +452,17 @@ function register(app) {
   }));
 
   app.post(adminUrl('/favicon'), guard((req, res) => {
+    const t = requestText(req);
     const uploads = req.files || [];
     const files = uploads.filter(file => file.name === 'favicon');
     if (uploads.length !== 1 || files.length !== 1) {
-      return res.json({ error: '请选择并裁切一张图标。' }, 400);
+      return res.json({ error: t('admin.error.selectFavicon') }, 400);
     }
     try {
       saveFavicon(files[0]);
     } catch (e) {
       console.error('[默·博客] 站点图标上传失败:', e.message);
-      return res.json({ error: '图标未保存，请重新选择图片并裁切。' }, 400);
+      return res.json({ error: t('admin.error.saveFavicon') }, 400);
     }
     const s = siteSettings();
     res.json({ ok: true, url: s.faviconUrl, type: s.faviconType });
@@ -461,7 +501,7 @@ function register(app) {
       // 不导出访客/IP、独立阅读去重记录、会话、密码，照片文件也需要单独备份数据目录。
       settings: {
         title: s.title, subtitle: s.subtitle, author: s.author,
-        footer: s.footer, perPage: s.perPage
+        footer: s.footer, locale: s.locale, perPage: s.perPage
       }
     };
     res.download(JSON.stringify(data, null, 2), 'mo-blog-backup-' + today() + '.json', 'application/json; charset=utf-8');
@@ -478,7 +518,8 @@ function register(app) {
       || !Array.isArray(data.cats) || !Array.isArray(data.tags)
       || data.posts.length > 5000 || data.comments.length > 20000
       || data.cats.length > 500 || data.tags.length > 5000
-      || !Array.isArray(data.subscribers || []) || data.subscribers.length > 20000;
+      || !Array.isArray(data.subscribers || []) || data.subscribers.length > 20000
+      || (data.settings && data.settings.locale != null && !isSupportedLocale(data.settings.locale));
     if (bad) return res.redirect(adminUrl('/settings?import=err'));
 
     const str = (v, n) => String(v == null ? '' : v).slice(0, n);
@@ -549,6 +590,7 @@ function register(app) {
           if (s.subtitle != null) setSetting('subtitle', str(s.subtitle, 120));
           if (s.author != null) setSetting('author', str(s.author, 40));
           if (s.footer != null) setSetting('footer', str(s.footer, 120));
+          if (s.locale != null) setSetting('locale', s.locale);
           if (s.perPage != null) setSetting('perPage', Math.min(20, Math.max(1, parseInt(s.perPage, 10) || 5)));
         }
       });

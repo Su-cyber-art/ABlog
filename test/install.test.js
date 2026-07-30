@@ -44,7 +44,7 @@ test('安装器后台路径校验与应用保留路径一致', () => {
   assert.equal(accepted.status, 0, accepted.stderr);
   assert.equal(accepted.stdout, '/manage_7f3a');
 
-  for (const reserved of ['/healthz', '/search', '/uploads']) {
+  for (const reserved of ['/healthz', '/language', '/search', '/uploads']) {
     const rejected = bash(['-c', 'source ./install.sh; normalize_admin_path "' + reserved + '"']);
     assert.notEqual(rejected.status, 0, reserved + ' must be rejected');
   }

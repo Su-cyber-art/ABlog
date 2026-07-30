@@ -23,6 +23,7 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 | `lib/db.js` | SQLite schema、首次初始化、预编译查询和事务 |
 | `lib/auth.js` | scrypt 密码哈希、HMAC 会话令牌、Cookie 解析 |
 | `lib/config.js` | 环境配置校验和后台 URL 生成 |
+| `lib/i18n.js`、`lib/i18n-messages.js` | 语言选择、Cookie、翻译函数和七种语言文案 |
 | `lib/md.js` | Node 与浏览器共用的安全 Markdown 子集渲染器 |
 | `lib/media.js` | 关于页照片与站点图标的校验、原子写入和移除 |
 | `routes/front.js` | 前台页面、评论、订阅和 RSS |
@@ -113,7 +114,8 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 - 复用 `head()`、`frontHeader()`、`frontFooter()`、`adminTop()` 和 `adminBottom()`，不要复制整套页面外壳。
 - 可复用样式写入 `public/css/site.css`；沿用现有 CSS 变量、细边框、小圆角、衬线字体和克制的金色强调色。
 - 同时维护桌面端和 `max-width: 740px` 移动端布局。表格、编辑器、侧栏和长文本不能溢出或互相遮挡。
-- 可见文本默认使用简体中文，并保持现有安静、简洁的语气。
+- 界面默认使用简体中文，并支持繁体中文、英语、法语、俄语、德语和日语。系统文案必须通过 `lib/i18n.js` 与 `lib/i18n-messages.js` 输出；文章、分类、标签和站点信息等用户内容不得自动翻译。
+- 新增或修改系统文案时必须同步七种语言，保持占位符一致，并验证站点默认语言与访客 Cookie 覆盖两条路径。
 - 自定义 favicon 必须保存在 `ABLOG_DATA_DIR/uploads`，不能改写 Release 内的 `public/favicon.svg`。页面通过 `siteSettings()` 输出默认 SVG 或带随机版本号的自定义 PNG，替换后必须让当前页面和后续请求使用新 URL。
 - 前台交互点阵必须保持零依赖、只按需渲染，并在触屏设备、页面隐藏或 `prefers-reduced-motion` 生效时停止持续动画；后台不加载点阵脚本。
 - CSS 和 JavaScript 资源 URL 必须带 `package.json` 版本参数，避免升级后继续命中旧版静态缓存。
@@ -166,6 +168,7 @@ bash -n scripts/build-linux-bundle.sh
 
 - 在桌面和窄屏视口实际打开受影响页面。
 - 检查布局溢出、文本截断、表单可用性、焦点样式和控制台错误。
+- 多语言界面还要抽查较长的法语、俄语和德语文案，确保导航、按钮、表格和设置表单不溢出。
 
 安装器或 Release 改动：
 

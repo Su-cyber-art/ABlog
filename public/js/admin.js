@@ -2,6 +2,16 @@
 (function () {
   'use strict';
 
+  var messages = {};
+  try { messages = JSON.parse(document.body.getAttribute('data-i18n') || '{}'); } catch (e) { messages = {}; }
+  var tr = function (key, fallback, values) {
+    var message = messages[key] || fallback || key;
+    if (!values) return message;
+    return message.replace(/\{([A-Za-z0-9_]+)\}/g, function (match, name) {
+      return Object.prototype.hasOwnProperty.call(values, name) ? String(values[name]) : match;
+    });
+  };
+
   // 删除/重置等操作的确认(与设计稿的 confirm 行为一致)
   document.addEventListener('submit', function (e) {
     var f = e.target;
@@ -101,35 +111,35 @@
       var typeOk = /^(?:image\/svg\+xml|image\/jpeg|image\/png|image\/webp)$/.test(file.type || '');
       if (!extensionOk && !typeOk) {
         faviconClear();
-        return faviconMessage('请选择 SVG、JPEG、PNG 或 WebP 图片。', true);
+        return faviconMessage(tr('admin.favicon.invalidType', '请选择 SVG、JPEG、PNG 或 WebP 图片。'), true);
       }
       if (file.size > 5 * 1024 * 1024) {
         faviconClear();
-        return faviconMessage('图片不能超过 5 MiB。', true);
+        return faviconMessage(tr('admin.favicon.tooLarge', '图片不能超过 5 MiB。'), true);
       }
 
-      faviconMessage('正在读取图片…');
+      faviconMessage(tr('admin.favicon.reading', '正在读取图片…'));
       var reader = new FileReader();
-      reader.onerror = function () { faviconClear(); faviconMessage('无法读取这张图片。', true); };
+      reader.onerror = function () { faviconClear(); faviconMessage(tr('admin.favicon.readFailed', '无法读取这张图片。'), true); };
       reader.onload = function () {
         var image = new Image();
-        image.onerror = function () { faviconClear(); faviconMessage('图片无法解码，请换一张重试。', true); };
+        image.onerror = function () { faviconClear(); faviconMessage(tr('admin.favicon.decodeFailed', '图片无法解码，请换一张重试。'), true); };
         image.onload = function () {
           if (!image.naturalWidth || !image.naturalHeight
             || image.naturalWidth > 8192 || image.naturalHeight > 8192
             || image.naturalWidth * image.naturalHeight > 40 * 1000 * 1000) {
             faviconClear();
-            return faviconMessage('图片尺寸过大，请使用不超过 8192 像素的图片。', true);
+            return faviconMessage(tr('admin.favicon.dimensions', '图片尺寸过大，请使用不超过 8192 像素的图片。'), true);
           }
           faviconImage = image;
           faviconEditor.hidden = false;
           faviconUpload.disabled = false;
-          faviconMessage('调整裁切后，点击“确认并上传”。');
+          faviconMessage(tr('admin.favicon.cropReady', '调整裁切后，点击“确认并上传”。'));
           try {
             faviconReset();
           } catch (e) {
             faviconClear();
-            faviconMessage('这张图片无法安全转换，请换一张重试。', true);
+            faviconMessage(tr('admin.favicon.unsafe', '这张图片无法安全转换，请换一张重试。'), true);
           }
         };
         image.src = String(reader.result || '');
@@ -181,11 +191,11 @@
       e.preventDefault();
       if (!faviconImage || faviconUpload.disabled) return;
       faviconUpload.disabled = true;
-      faviconMessage('正在上传图标…');
+      faviconMessage(tr('admin.favicon.uploading', '正在上传图标…'));
       faviconCanvas.toBlob(function (blob) {
         if (!blob) {
           faviconUpload.disabled = false;
-          return faviconMessage('无法生成图标，请换一张图片重试。', true);
+          return faviconMessage(tr('admin.favicon.generateFailed', '无法生成图标，请换一张图片重试。'), true);
         }
         var body = new FormData();
         body.append('favicon', blob, 'favicon.png');
@@ -196,7 +206,7 @@
           headers: { Accept: 'application/json' }
         }).then(function (response) {
           return response.json().then(function (data) {
-            if (!response.ok || !data.ok) throw new Error(data.error || '上传失败');
+            if (!response.ok || !data.ok) throw new Error(data.error || tr('admin.favicon.uploadFailed', '上传失败'));
             return data;
           });
         }).then(function (data) {
@@ -207,13 +217,13 @@
           link.href = data.url;
           document.head.appendChild(link);
           if (faviconCurrent) faviconCurrent.src = data.url;
-          faviconMessage('图标已更新，正在刷新缓存版本。');
+          faviconMessage(tr('admin.favicon.cacheRefreshing', '图标已更新，正在刷新缓存版本。'));
           window.setTimeout(function () {
             window.location.replace(faviconForm.dataset.returnUrl + '?favicon=saved');
           }, 250);
         }).catch(function (error) {
           faviconUpload.disabled = false;
-          faviconMessage(error.message || '上传失败，请重试。', true);
+          faviconMessage(error.message || tr('admin.favicon.retry', '上传失败，请重试。'), true);
         });
       }, 'image/png');
     });
@@ -239,7 +249,7 @@
       var src = ta.value;
       pv.innerHTML = src.trim()
         ? window.MoMD.mdToHtml(src)
-        : '<p class="ed-preview-empty">预览会随左侧输入实时更新。</p>';
+        : '<p class="ed-preview-empty">' + tr('admin.editor.previewEmpty', '预览会随左侧输入实时更新。') + '</p>';
       if (wc) wc.textContent = String(src.replace(/\s/g, '').length);
     };
     ta.addEventListener('input', render);
@@ -297,11 +307,14 @@
       var bar = document.createElement('div');
       bar.className = 'draft-restore';
       var text = document.createElement('span');
-      text.textContent = '发现约 ' + (mins >= 60 ? Math.round(mins / 60) + ' 小时' : mins + ' 分钟') + '前的未提交暂存稿。';
+      var elapsed = mins >= 60
+        ? tr('admin.draft.hours', '{count} 小时', { count: Math.round(mins / 60) })
+        : tr('admin.draft.minutes', '{count} 分钟', { count: mins });
+      text.textContent = tr('admin.draft.found', '发现约 {time}前的未提交暂存稿。', { time: elapsed });
       var ok = document.createElement('button');
-      ok.type = 'button'; ok.className = 'btn btn-ghost'; ok.textContent = '恢复暂存稿';
+      ok.type = 'button'; ok.className = 'btn btn-ghost'; ok.textContent = tr('admin.draft.restore', '恢复暂存稿');
       var no = document.createElement('button');
-      no.type = 'button'; no.className = 'btn btn-ghost muted'; no.textContent = '丢弃';
+      no.type = 'button'; no.className = 'btn btn-ghost muted'; no.textContent = tr('admin.draft.discard', '丢弃');
       bar.appendChild(text); bar.appendChild(ok); bar.appendChild(no);
       form.insertBefore(bar, form.querySelector('.editor-grid'));
       ok.addEventListener('click', function () {

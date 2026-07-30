@@ -71,6 +71,7 @@ test('normalizeAdminPath 接受合法、拒绝非法与保留字', () => {
   assert.throws(() => normalizeAdminPath('/a/b'));
   assert.throws(() => normalizeAdminPath('/post'));
   assert.throws(() => normalizeAdminPath('/search'));
+  assert.throws(() => normalizeAdminPath('/language'));
   assert.throws(() => normalizeAdminPath('/uploads'));
 });
 

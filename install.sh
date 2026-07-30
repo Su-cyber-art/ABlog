@@ -318,7 +318,7 @@ normalize_admin_path() {
   [[ "${value}" =~ ^/[A-Za-z0-9][A-Za-z0-9_-]{0,63}$ ]] || return 1
   lower="${value,,}"
   case "${lower}" in
-    /about|/archive|/css|/favicon|/fonts|/healthz|/js|/post|/search|/subscribe|/uploads)
+    /about|/archive|/css|/favicon|/fonts|/healthz|/js|/language|/post|/search|/subscribe|/uploads)
       return 1
       ;;
   esac

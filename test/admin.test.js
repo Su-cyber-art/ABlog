@@ -60,13 +60,13 @@ test('发布文章后出现在前台首页', async () => {
   assert.match(home.body, /集成测试随笔/);
 });
 
-test('存草稿重定向到草稿筛选(非 ASCII Location 编码正确)', async () => {
+test('存草稿重定向到稳定的草稿筛选参数', async () => {
   const cookies = await login(srv.base);
   const r = await request(srv.base, 'POST', '/admin/editor/save', {
     cookies, form: { title: '一篇草稿', cat: '未分类', tags: '', content: 'x', action: 'draft' }
   });
   assert.equal(r.status, 302);
-  assert.match(r.location, /filter=%E8%8D%89%E7%A8%BF/);
+  assert.match(r.location, /filter=draft/);
   const list = await request(srv.base, 'GET', r.location, { cookies });
   assert.match(list.body, /一篇草稿/);
 });

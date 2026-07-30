@@ -2,6 +2,7 @@
 'use strict';
 const { ADMIN_PATH, adminUrl } = require('../lib/config');
 const { version: APP_VERSION } = require('../package.json');
+const { LOCALES, createTranslator, normalizeLocale } = require('../lib/i18n');
 
 const assetUrl = pathname => `${pathname}?v=${encodeURIComponent(APP_VERSION)}`;
 
@@ -12,12 +13,39 @@ function esc(s) {
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+function viewI18n(ctx) {
+  const locale = normalizeLocale(ctx.locale || (ctx.s && ctx.s.locale));
+  return { locale, t: ctx.t || createTranslator(locale) };
+}
+
+function languageOptions(selected) {
+  return LOCALES.map(locale =>
+    `<option value="${locale.code}"${locale.code === selected ? ' selected' : ''}>${esc(locale.name)}</option>`).join('');
+}
+
+function languageSwitcher(ctx, className) {
+  const { locale, t } = viewI18n(ctx);
+  const currentPath = ctx.currentPath || '/';
+  return `<form class="locale-form ${esc(className || '')}" method="post" action="/language">
+    <input type="hidden" name="returnTo" value="${esc(currentPath)}">
+    <label class="sr-only" for="locale-${esc(className || 'switcher')}">${esc(t('common.language'))}</label>
+    <select class="locale-select" id="locale-${esc(className || 'switcher')}" name="locale" aria-label="${esc(t('common.language'))}">
+      ${languageOptions(locale)}
+    </select>
+    <button class="locale-submit" type="submit" title="${esc(t('common.apply'))}" aria-label="${esc(t('common.apply'))}"><span aria-hidden="true">&#10003;</span></button>
+  </form>`;
+}
+
 /** 文档头。ctx: { s } */
 function head(ctx, pageTitle) {
   const s = ctx.s;
+  const { locale } = viewI18n(ctx);
   const title = pageTitle ? `${pageTitle} · ${s.title}` : `${s.title} — ${s.subtitle}`;
+  const clientData = ctx.clientMessages
+    ? ` data-i18n="${esc(JSON.stringify(ctx.clientMessages))}"`
+    : '';
   return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${locale}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,13 +55,14 @@ function head(ctx, pageTitle) {
 <link rel="stylesheet" href="${assetUrl('/css/fonts.css')}">
 <link rel="stylesheet" href="${assetUrl('/css/site.css')}">
 </head>
-<body>
+<body${clientData}>
 `;
 }
 
 /** 前台页头。ctx: { s, nav } */
 function frontHeader(ctx) {
   const { s, nav } = ctx;
+  const { t } = viewI18n(ctx);
   const act = v => nav === v ? ' class="active"' : '';
   return `<div class="page">
 <div class="fwrap">
@@ -42,11 +71,12 @@ function frontHeader(ctx) {
     <a class="brand" href="/">${esc(s.title)}</a>
     <div class="header-sub">${esc(s.subtitle)}</div>
     <nav class="site-nav">
-      <a href="/"${act('home')}>首页</a>
-      <a href="/archive"${act('archive')}>归档</a>
-      <a href="/about"${act('about')}>关于</a>
+      <a href="/"${act('home')}>${esc(t('front.nav.home'))}</a>
+      <a href="/archive"${act('archive')}>${esc(t('front.nav.archive'))}</a>
+      <a href="/about"${act('about')}>${esc(t('front.nav.about'))}</a>
       <span class="nav-sep"></span>
-      <a href="${ADMIN_PATH}" class="nav-admin">后台 →</a>
+      <a href="${ADMIN_PATH}" class="nav-admin">${esc(t('front.nav.admin'))}</a>
+      ${languageSwitcher(ctx, 'front-locale')}
     </nav>
   </header>
 `;
@@ -55,12 +85,13 @@ function frontHeader(ctx) {
 /** 前台页脚。ctx: { s, year } */
 function frontFooter(ctx) {
   const { s, year } = ctx;
+  const { t } = viewI18n(ctx);
   return `
   <footer class="site-footer">
     <span>© ${esc(year)} ${esc(s.title)} · ${esc(s.footer)}</span>
     <span class="spacer"></span>
     <a href="/feed.xml">RSS</a>
-    <a href="${ADMIN_PATH}">后台管理</a>
+    <a href="${ADMIN_PATH}">${esc(t('front.footer.admin'))}</a>
   </footer>
 
 </div>
@@ -86,6 +117,7 @@ const ICONS = {
 /** 后台外壳(侧栏 + main 开标签)。ctx: { s, pendingN } */
 function adminTop(ctx, view, pageTitle) {
   const { s, pendingN } = ctx;
+  const { t } = viewI18n(ctx);
   const item = (v, href, icon, label, badge) =>
     `<a class="a-nav ${view === v ? 'active' : ''}" href="${href}">
       ${ICONS[icon]}
@@ -94,21 +126,22 @@ function adminTop(ctx, view, pageTitle) {
   return head(ctx, pageTitle) + `<div class="admin-grid">
   <aside class="admin-side">
     <div class="admin-brand">
-      <div class="admin-brand-title">${esc(s.title)} <span class="suffix">· 后台</span></div>
-      <div class="admin-brand-sub">写作与管理</div>
+      <div class="admin-brand-title">${esc(s.title)} <span class="suffix">${esc(t('admin.brand.suffix'))}</span></div>
+      <div class="admin-brand-sub">${esc(t('admin.brand.subtitle'))}</div>
     </div>
 
-    ${item('dash', ADMIN_PATH, 'dash', '仪表盘')}
-    ${item('posts', adminUrl('/posts'), 'posts', '文章管理')}
-    ${item('editor', adminUrl('/editor'), 'editor', '写作')}
-    ${item('tax', adminUrl('/taxonomy'), 'tax', '分类与标签')}
-    ${item('comments', adminUrl('/comments'), 'comments', '评论管理', badge)}
-    ${item('subs', adminUrl('/subscribers'), 'subs', '订阅者')}
-    ${item('visitors', adminUrl('/visitors'), 'visitors', '访客管理')}
-    ${item('settings', adminUrl('/settings'), 'settings', '站点设置')}
+    ${item('dash', ADMIN_PATH, 'dash', esc(t('admin.nav.dashboard')))}
+    ${item('posts', adminUrl('/posts'), 'posts', esc(t('admin.nav.posts')))}
+    ${item('editor', adminUrl('/editor'), 'editor', esc(t('admin.nav.write')))}
+    ${item('tax', adminUrl('/taxonomy'), 'tax', esc(t('admin.nav.taxonomy')))}
+    ${item('comments', adminUrl('/comments'), 'comments', esc(t('admin.nav.comments')), badge)}
+    ${item('subs', adminUrl('/subscribers'), 'subs', esc(t('admin.nav.subscribers')))}
+    ${item('visitors', adminUrl('/visitors'), 'visitors', esc(t('admin.nav.visitors')))}
+    ${item('settings', adminUrl('/settings'), 'settings', esc(t('admin.nav.settings')))}
 
     <div class="admin-side-foot">
-      <a href="/">← 查看前台</a>
+      <a href="/">← ${esc(t('admin.nav.viewSite'))}</a>
+      ${languageSwitcher(ctx, 'admin-locale')}
     </div>
   </aside>
 
@@ -127,4 +160,13 @@ function adminBottom() {
 `;
 }
 
-module.exports = { esc, head, frontHeader, frontFooter, adminTop, adminBottom };
+module.exports = {
+  esc,
+  head,
+  frontHeader,
+  frontFooter,
+  adminTop,
+  adminBottom,
+  languageOptions,
+  languageSwitcher
+};

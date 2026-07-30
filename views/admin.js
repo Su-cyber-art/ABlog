@@ -1,28 +1,38 @@
 /* 默·博客 — 后台视图(登录/仪表盘/文章/写作/分类标签/评论/设置) */
 'use strict';
-const { esc, head, adminTop, adminBottom } = require('./_ui');
+const {
+  esc,
+  head,
+  adminTop,
+  adminBottom,
+  languageOptions,
+  languageSwitcher
+} = require('./_ui');
 const { ADMIN_PATH } = require('../lib/config');
+
+const text = (ctx, key, values) => esc(ctx.t(key, values));
 
 /** 登录页 */
 function login(ctx, d) {
-  return head(ctx, '后台登录') + `
+  return head(ctx, ctx.t('admin.login.pageTitle')) + `
 <div class="login-wrap">
   <div class="login-card">
-    <div class="login-kicker">后台 · Admin</div>
+    <div class="login-kicker">${text(ctx, 'admin.login.kicker')}</div>
     <div class="login-title">${esc(ctx.s.title)}</div>
     <p class="login-sub">${esc(ctx.s.subtitle)}</p>
 
     <form method="post" action="${ADMIN_PATH}/login">
       <div class="field">
-        <label>密码</label>
+        <label>${text(ctx, 'admin.login.password')}</label>
         <input class="input" type="password" name="password" autocomplete="current-password" autofocus required>
       </div>
-      <button class="btn btn-primary btn-block" type="submit">进入后台</button>
-      ${d.failed ? '<p class="login-failed">密码不对，再试一次。</p>' : ''}
-      ${d.blocked ? '<p class="login-failed">尝试次数过多，请 15 分钟后再试。</p>' : ''}
+      <button class="btn btn-primary btn-block" type="submit">${text(ctx, 'admin.login.submit')}</button>
+      ${d.failed ? `<p class="login-failed">${text(ctx, 'admin.login.failed')}</p>` : ''}
+      ${d.blocked ? `<p class="login-failed">${text(ctx, 'admin.login.blocked')}</p>` : ''}
     </form>
 
-    <div class="login-back"><a href="/">← 返回前台</a></div>
+    <div class="login-back"><a href="/">← ${text(ctx, 'admin.login.back')}</a></div>
+    ${languageSwitcher(ctx, 'login-locale')}
     <div class="login-fleuron">❦</div>
   </div>
 </div>
@@ -47,42 +57,42 @@ function dash(ctx, d) {
           <div class="card gap-sm">
             <div class="pc-head">
               <span class="pc-author">${esc(c.author)}</span>
-              <span class="text-muted">于《${esc(c.postTitle)}》</span>
+              <span class="text-muted">${text(ctx, 'admin.dashboard.onPost', { title: c.postTitle })}</span>
             </div>
             <p class="pc-text">${esc(c.text)}</p>
             <div class="pc-actions">
-              <form method="post" action="${ADMIN_PATH}/comments/${c.id}/status"><input type="hidden" name="status" value="approved"><button class="btn btn-ghost" type="submit">通过</button></form>
-              <form method="post" action="${ADMIN_PATH}/comments/${c.id}/status"><input type="hidden" name="status" value="spam"><button class="btn btn-ghost muted" type="submit">标为垃圾</button></form>
+              <form method="post" action="${ADMIN_PATH}/comments/${c.id}/status"><input type="hidden" name="status" value="approved"><button class="btn btn-ghost" type="submit">${text(ctx, 'admin.dashboard.approve')}</button></form>
+              <form method="post" action="${ADMIN_PATH}/comments/${c.id}/status"><input type="hidden" name="status" value="spam"><button class="btn btn-ghost muted" type="submit">${text(ctx, 'admin.dashboard.markSpam')}</button></form>
             </div>
           </div>`).join('')}
         </div>`
-    : '\n        <p class="empty-dash">没有等待审核的评论。</p>';
+    : `\n        <p class="empty-dash">${text(ctx, 'admin.dashboard.noPending')}</p>`;
 
-  return adminTop(ctx, 'dash', '仪表盘') + `
+  return adminTop(ctx, 'dash', ctx.t('admin.dashboard.title')) + `
     <div class="page-head">
-      <h2 class="page-title">仪表盘</h2>
+      <h2 class="page-title">${text(ctx, 'admin.dashboard.title')}</h2>
       <span class="head-note">${esc(d.todayLine)}</span>
       <span class="spacer"></span>
-      <a class="btn btn-primary" href="${ADMIN_PATH}/editor">写新随笔</a>
+      <a class="btn btn-primary" href="${ADMIN_PATH}/editor">${text(ctx, 'admin.dashboard.newPost')}</a>
     </div>
 
     <div class="stat-grid">
-      <div class="card"><div class="card-kicker">已发布</div><div class="stat-num">${d.statPub}</div><div class="card-meta">篇随笔</div></div>
-      <div class="card"><div class="card-kicker">草稿</div><div class="stat-num">${d.statDraft}</div><div class="card-meta">篇未发布</div></div>
-      <div class="card"><div class="card-kicker">待审评论</div><div class="stat-num ${d.statPending > 0 ? 'warn' : ''}">${d.statPending}</div><div class="card-meta">条等待处理</div></div>
-      <div class="card"><div class="card-kicker">总阅读</div><div class="stat-num">${d.statViews}</div><div class="card-meta">次</div></div>
-      <div class="card"><div class="card-kicker">独立访客</div><div class="stat-num">${d.statVisitors}</div><div class="card-meta">近 90 天</div></div>
+      <div class="card"><div class="card-kicker">${text(ctx, 'common.published')}</div><div class="stat-num">${d.statPub}</div><div class="card-meta">${text(ctx, 'admin.dashboard.postsUnit')}</div></div>
+      <div class="card"><div class="card-kicker">${text(ctx, 'common.draft')}</div><div class="stat-num">${d.statDraft}</div><div class="card-meta">${text(ctx, 'admin.dashboard.unpublished')}</div></div>
+      <div class="card"><div class="card-kicker">${text(ctx, 'admin.dashboard.pendingComments')}</div><div class="stat-num ${d.statPending > 0 ? 'warn' : ''}">${d.statPending}</div><div class="card-meta">${text(ctx, 'admin.dashboard.waiting')}</div></div>
+      <div class="card"><div class="card-kicker">${text(ctx, 'admin.dashboard.totalViews')}</div><div class="stat-num">${d.statViews}</div><div class="card-meta">${text(ctx, 'admin.dashboard.times')}</div></div>
+      <div class="card"><div class="card-kicker">${text(ctx, 'admin.dashboard.uniqueVisitors')}</div><div class="stat-num">${d.statVisitors}</div><div class="card-meta">${text(ctx, 'admin.dashboard.lastDays', { days: d.retentionDays })}</div></div>
     </div>
 
     <div class="dash-grid">
       <section>
         <div class="sec-head">
-          <h4 class="sec-title">最近文章</h4>
-          <a class="sec-link" href="${ADMIN_PATH}/posts">全部 →</a>
+          <h4 class="sec-title">${text(ctx, 'admin.dashboard.recentPosts')}</h4>
+          <a class="sec-link" href="${ADMIN_PATH}/posts">${text(ctx, 'admin.dashboard.all')}</a>
         </div>
         <div class="table-scroll">
           <table class="table">
-            <thead><tr><th>标题</th><th style="width:76px">状态</th><th style="width:96px">日期</th></tr></thead>
+            <thead><tr><th>${text(ctx, 'common.title')}</th><th style="width:76px">${text(ctx, 'common.status')}</th><th style="width:96px">${text(ctx, 'common.date')}</th></tr></thead>
             <tbody>${recent}
             </tbody>
           </table>
@@ -91,8 +101,8 @@ function dash(ctx, d) {
 
       <section>
         <div class="sec-head">
-          <h4 class="sec-title">待审评论</h4>
-          <a class="sec-link" href="${ADMIN_PATH}/comments">评论管理 →</a>
+          <h4 class="sec-title">${text(ctx, 'admin.dashboard.pendingComments')}</h4>
+          <a class="sec-link" href="${ADMIN_PATH}/comments">${text(ctx, 'admin.dashboard.commentsManagement')}</a>
         </div>${pending}
       </section>
     </div>
@@ -113,37 +123,37 @@ function posts(ctx, d) {
             <td class="cell-dim">${esc(p.date)}</td>
             <td class="cell-num">${p.views}</td>
             <td class="cell-ops">
-              <a class="op" href="/post/${p.id}">查看</a>
-              <a class="op" href="${ADMIN_PATH}/editor/${p.id}">编辑</a>
-              <form class="inline" method="post" action="${ADMIN_PATH}/posts/${p.id}/delete" data-confirm="删除《${esc(p.title)}》？评论会一并删除。"><button class="op muted" type="submit">删除</button></form>
+              <a class="op" href="/post/${p.id}">${text(ctx, 'common.view')}</a>
+              <a class="op" href="${ADMIN_PATH}/editor/${p.id}">${text(ctx, 'common.edit')}</a>
+              <form class="inline" method="post" action="${ADMIN_PATH}/posts/${p.id}/delete" data-confirm="${text(ctx, 'admin.posts.deleteConfirm', { title: p.title })}"><button class="op muted" type="submit">${text(ctx, 'common.delete')}</button></form>
             </td>
           </tr>`).join('');
 
-  return adminTop(ctx, 'posts', '文章管理') + `
+  return adminTop(ctx, 'posts', ctx.t('admin.posts.title')) + `
     <div class="page-head page-head--posts">
-      <h2 class="page-title">文章管理</h2>
+      <h2 class="page-title">${text(ctx, 'admin.posts.title')}</h2>
       <span class="spacer"></span>
-      <a class="btn btn-primary" href="${ADMIN_PATH}/editor">新建随笔</a>
+      <a class="btn btn-primary" href="${ADMIN_PATH}/editor">${text(ctx, 'admin.posts.newPost')}</a>
     </div>
 
     <div class="filter-row">
-      ${chip('全部', d.nAll, ADMIN_PATH + '/posts', d.filter === '全部')}
-      ${chip('已发布', d.nPub, ADMIN_PATH + '/posts?filter=已发布', d.filter === '已发布')}
-      ${chip('草稿', d.nDraft, ADMIN_PATH + '/posts?filter=草稿', d.filter === '草稿')}
+      ${chip(text(ctx, 'common.all'), d.nAll, ADMIN_PATH + '/posts', d.filter === 'all')}
+      ${chip(text(ctx, 'common.published'), d.nPub, ADMIN_PATH + '/posts?filter=published', d.filter === 'published')}
+      ${chip(text(ctx, 'common.draft'), d.nDraft, ADMIN_PATH + '/posts?filter=draft', d.filter === 'draft')}
     </div>
 
     <div class="table-scroll">
       <table class="table">
         <thead><tr>
-          <th>标题</th><th style="width:9%">分类</th><th style="width:15%">标签</th>
-          <th style="width:9%">状态</th><th style="width:11%">日期</th>
-          <th style="width:7%;text-align:right">阅读</th><th style="width:15%;text-align:right">操作</th>
+          <th>${text(ctx, 'common.title')}</th><th style="width:9%">${text(ctx, 'common.category')}</th><th style="width:15%">${text(ctx, 'common.tags')}</th>
+          <th style="width:9%">${text(ctx, 'common.status')}</th><th style="width:11%">${text(ctx, 'common.date')}</th>
+          <th style="width:7%;text-align:right">${text(ctx, 'common.views')}</th><th style="width:15%;text-align:right">${text(ctx, 'common.actions')}</th>
         </tr></thead>
         <tbody>${rows}
         </tbody>
       </table>
     </div>
-    ${d.rows.length ? '' : '<p class="empty-note">这里还没有文章。</p>'}
+    ${d.rows.length ? '' : `<p class="empty-note">${text(ctx, 'admin.posts.empty')}</p>`}
 ` + adminBottom();
 }
 
@@ -153,7 +163,7 @@ function editor(ctx, d) {
     `<option value="${esc(c)}"${d.dCat === c ? ' selected' : ''}>${esc(c)}</option>`).join('\n            ');
   const preview = d.dContent.trim()
     ? d.previewHtml
-    : '<p class="ed-preview-empty">预览会随左侧输入实时更新。</p>';
+    : `<p class="ed-preview-empty">${text(ctx, 'admin.editor.previewEmpty')}</p>`;
 
   return adminTop(ctx, 'editor', d.heading) + `
     <form method="post" action="${ADMIN_PATH}/editor/save">
@@ -161,41 +171,41 @@ function editor(ctx, d) {
 
       <div class="page-head page-head--editor">
         <h2 class="page-title">${d.heading}</h2>
-        <span class="tag ${d.dStatus === 'published' ? 'tag-accent' : 'tag-neutral'}">${d.dStatus === 'published' ? '已发布' : '草稿'}</span>
+        <span class="tag ${d.dStatus === 'published' ? 'tag-accent' : 'tag-neutral'}">${text(ctx, d.dStatus === 'published' ? 'common.published' : 'common.draft')}</span>
         <span class="spacer"></span>
-        <a class="editor-head-back" href="${ADMIN_PATH}/posts">返回列表</a>
-        <button class="btn btn-secondary" type="submit" name="action" value="draft">存为草稿</button>
-        <button class="btn btn-primary" type="submit" name="action" value="publish">发布</button>
+        <a class="editor-head-back" href="${ADMIN_PATH}/posts">${text(ctx, 'admin.editor.backList')}</a>
+        <button class="btn btn-secondary" type="submit" name="action" value="draft">${text(ctx, 'admin.editor.saveDraft')}</button>
+        <button class="btn btn-primary" type="submit" name="action" value="publish">${text(ctx, 'admin.editor.publish')}</button>
       </div>
 
       <div class="editor-grid">
         <div class="field">
-          <label>标题</label>
-          <input class="input ed-title-input" name="title" value="${esc(d.dTitle)}" placeholder="随笔标题">
+          <label>${text(ctx, 'common.title')}</label>
+          <input class="input ed-title-input" name="title" value="${esc(d.dTitle)}" placeholder="${text(ctx, 'admin.editor.titlePlaceholder')}">
         </div>
         <div class="field">
-          <label>分类</label>
+          <label>${text(ctx, 'common.category')}</label>
           <select class="input" name="cat">
             ${options}
           </select>
         </div>
         <div class="field">
-          <label>标签（逗号分隔）</label>
-          <input class="input" name="tags" value="${esc(d.dTags)}" placeholder="雨, 夜">
+          <label>${text(ctx, 'admin.editor.tagsLabel')}</label>
+          <input class="input" name="tags" value="${esc(d.dTags)}" placeholder="${text(ctx, 'admin.editor.tagsPlaceholder')}">
         </div>
       </div>
 
       <div class="editor-box">
         <div class="ed-cols">
           <div class="ed-col-label md">Markdown</div>
-          <div class="ed-col-label pv">预览</div>
-          <textarea class="ed-textarea" id="ed-content" name="content" placeholder="# 从这里开始写……">${esc(d.dContent)}</textarea>
+          <div class="ed-col-label pv">${text(ctx, 'admin.editor.preview')}</div>
+          <textarea class="ed-textarea" id="ed-content" name="content" placeholder="${text(ctx, 'admin.editor.contentPlaceholder')}">${esc(d.dContent)}</textarea>
           <div class="ed-preview" id="ed-preview">${preview}</div>
         </div>
         <div class="ed-foot">
-          <span><span id="ed-wordcount">${d.wordCount}</span> 字</span>
+          <span><span id="ed-wordcount">${d.wordCount}</span> ${text(ctx, 'admin.editor.characters')}</span>
           <span class="spacer"></span>
-          <span>支持 # 标题 · **粗体** · *斜体* · &gt; 引用 · - 列表 · --- 分隔线</span>
+          <span>${text(ctx, 'admin.editor.help')}</span>
         </div>
       </div>
     </form>
@@ -207,10 +217,10 @@ function taxonomy(ctx, d) {
   const catRows = d.catRows.map(c => `
           <div class="tax-row">
             <span class="tax-name">${esc(c.name)}</span>
-            <span class="tax-count">${c.count} 篇</span>
+            <span class="tax-count">${text(ctx, 'admin.taxonomy.postsCount', { count: c.count })}</span>
             ${c.count > 0
-              ? `<span class="tax-del"><button type="button" data-alert="「${esc(c.name)}」还有 ${c.count} 篇文章，先移动或删除它们。">删除</button></span>`
-              : `<form class="tax-del" method="post" action="${ADMIN_PATH}/cats/delete"><input type="hidden" name="name" value="${esc(c.name)}"><button type="submit">删除</button></form>`}
+              ? `<span class="tax-del"><button type="button" data-alert="${text(ctx, 'admin.taxonomy.inUseAlert', { name: c.name, count: c.count })}">${text(ctx, 'common.delete')}</button></span>`
+              : `<form class="tax-del" method="post" action="${ADMIN_PATH}/cats/delete"><input type="hidden" name="name" value="${esc(c.name)}"><button type="submit">${text(ctx, 'common.delete')}</button></form>`}
           </div>`).join('');
 
   const chips = d.tagChips.map(t => `
@@ -218,29 +228,29 @@ function taxonomy(ctx, d) {
             <form class="inline" style="margin:0" method="post" action="${ADMIN_PATH}/tags/delete"><input type="hidden" name="name" value="${esc(t)}"><button class="tag-x" type="submit">×</button></form>
           </span>`).join('');
 
-  return adminTop(ctx, 'tax', '分类与标签') + `
-    <h2 class="page-title" style="margin-bottom:24px">分类与标签</h2>
+  return adminTop(ctx, 'tax', ctx.t('admin.taxonomy.title')) + `
+    <h2 class="page-title" style="margin-bottom:24px">${text(ctx, 'admin.taxonomy.title')}</h2>
 
     <div class="tax-grid">
       <section class="card tax-card">
-        <h4 class="tax-h">分类</h4>
-        <p class="tax-note">使用中的分类不可删除。</p>
+        <h4 class="tax-h">${text(ctx, 'common.categories')}</h4>
+        <p class="tax-note">${text(ctx, 'admin.taxonomy.inUse')}</p>
         <div class="tax-rows">${catRows}
         </div>
         <form class="tax-add" method="post" action="${ADMIN_PATH}/cats/add">
-          <input class="input" name="name" placeholder="新分类名称" required>
-          <button class="btn btn-primary" type="submit">添加</button>
+          <input class="input" name="name" placeholder="${text(ctx, 'admin.taxonomy.newCategory')}" required>
+          <button class="btn btn-primary" type="submit">${text(ctx, 'common.add')}</button>
         </form>
       </section>
 
       <section class="card tax-card">
-        <h4 class="tax-h">标签</h4>
-        <p class="tax-note">点 × 移除标签；文章上的引用会一并去掉。</p>
+        <h4 class="tax-h">${text(ctx, 'common.tags')}</h4>
+        <p class="tax-note">${text(ctx, 'admin.taxonomy.removeTagNote')}</p>
         <div class="tag-wrap">${chips}
         </div>
         <form class="tax-add tax-add--tags" method="post" action="${ADMIN_PATH}/tags/add">
-          <input class="input" name="name" placeholder="新标签" required>
-          <button class="btn btn-primary" type="submit">添加</button>
+          <input class="input" name="name" placeholder="${text(ctx, 'admin.taxonomy.newTag')}" required>
+          <button class="btn btn-primary" type="submit">${text(ctx, 'common.add')}</button>
         </form>
       </section>
     </div>
@@ -260,34 +270,34 @@ function comments(ctx, d) {
             <td class="cell-dim">${esc(c.date)}</td>
             <td><span class="${c.statusCls}">${c.statusText}</span></td>
             <td class="cell-ops">
-              ${c.canApprove ? `<form class="inline" method="post" action="${ADMIN_PATH}/comments/${c.id}/status"><input type="hidden" name="status" value="approved"><button class="op" type="submit">通过</button></form>` : ''}
-              ${c.canSpam ? `<form class="inline" method="post" action="${ADMIN_PATH}/comments/${c.id}/status"><input type="hidden" name="status" value="spam"><button class="op muted" type="submit">垃圾</button></form>` : ''}
-              <form class="inline" method="post" action="${ADMIN_PATH}/comments/${c.id}/delete" data-confirm="删除这条评论？"><button class="op muted" type="submit">删除</button></form>
+              ${c.canApprove ? `<form class="inline" method="post" action="${ADMIN_PATH}/comments/${c.id}/status"><input type="hidden" name="status" value="approved"><button class="op" type="submit">${text(ctx, 'admin.dashboard.approve')}</button></form>` : ''}
+              ${c.canSpam ? `<form class="inline" method="post" action="${ADMIN_PATH}/comments/${c.id}/status"><input type="hidden" name="status" value="spam"><button class="op muted" type="submit">${text(ctx, 'common.spam')}</button></form>` : ''}
+              <form class="inline" method="post" action="${ADMIN_PATH}/comments/${c.id}/delete" data-confirm="${text(ctx, 'admin.comments.deleteConfirm')}"><button class="op muted" type="submit">${text(ctx, 'common.delete')}</button></form>
             </td>
           </tr>`).join('');
 
-  return adminTop(ctx, 'comments', '评论管理') + `
-    <h2 class="page-title" style="margin-bottom:22px">评论管理</h2>
+  return adminTop(ctx, 'comments', ctx.t('admin.comments.title')) + `
+    <h2 class="page-title" style="margin-bottom:22px">${text(ctx, 'admin.comments.title')}</h2>
 
     <div class="filter-row">
-      ${chip('全部', d.cnAll, ADMIN_PATH + '/comments', d.filter === '全部')}
-      ${chip('待审', d.cnPending, ADMIN_PATH + '/comments?filter=待审', d.filter === '待审')}
-      ${chip('已通过', d.cnOk, ADMIN_PATH + '/comments?filter=已通过', d.filter === '已通过')}
-      ${chip('垃圾', d.cnSpam, ADMIN_PATH + '/comments?filter=垃圾', d.filter === '垃圾')}
+      ${chip(text(ctx, 'common.all'), d.cnAll, ADMIN_PATH + '/comments', d.filter === 'all')}
+      ${chip(text(ctx, 'common.pending'), d.cnPending, ADMIN_PATH + '/comments?filter=pending', d.filter === 'pending')}
+      ${chip(text(ctx, 'common.approved'), d.cnOk, ADMIN_PATH + '/comments?filter=approved', d.filter === 'approved')}
+      ${chip(text(ctx, 'common.spam'), d.cnSpam, ADMIN_PATH + '/comments?filter=spam', d.filter === 'spam')}
     </div>
 
     <div class="table-scroll">
       <table class="table" style="table-layout:fixed">
         <thead><tr>
-          <th style="width:11%">作者</th><th>内容</th><th style="width:15%">文章</th>
-          <th style="width:10%">日期</th><th style="width:8%">状态</th>
-          <th style="width:15%;text-align:right">操作</th>
+          <th style="width:11%">${text(ctx, 'common.author')}</th><th>${text(ctx, 'common.content')}</th><th style="width:15%">${text(ctx, 'admin.nav.posts')}</th>
+          <th style="width:10%">${text(ctx, 'common.date')}</th><th style="width:8%">${text(ctx, 'common.status')}</th>
+          <th style="width:15%;text-align:right">${text(ctx, 'common.actions')}</th>
         </tr></thead>
         <tbody>${rows}
         </tbody>
       </table>
     </div>
-    ${d.rows.length ? '' : '<p class="empty-note">此筛选下没有评论。</p>'}
+    ${d.rows.length ? '' : `<p class="empty-note">${text(ctx, 'admin.comments.empty')}</p>`}
 ` + adminBottom();
 }
 
@@ -298,28 +308,28 @@ function subscribers(ctx, d) {
             <td class="cell-author" style="font-family:var(--font-body);font-weight:400">${esc(r.email)}</td>
             <td class="cell-dim">${esc(r.date)}</td>
             <td class="cell-ops">
-              <form class="inline" method="post" action="${ADMIN_PATH}/subscribers/delete" data-confirm="移除订阅者 ${esc(r.email)}？"><input type="hidden" name="email" value="${esc(r.email)}"><button class="op muted" type="submit">移除</button></form>
+              <form class="inline" method="post" action="${ADMIN_PATH}/subscribers/delete" data-confirm="${text(ctx, 'admin.subscribers.removeConfirm', { email: r.email })}"><input type="hidden" name="email" value="${esc(r.email)}"><button class="op muted" type="submit">${text(ctx, 'common.remove')}</button></form>
             </td>
           </tr>`).join('');
 
-  return adminTop(ctx, 'subs', '订阅者') + `
+  return adminTop(ctx, 'subs', ctx.t('admin.subscribers.title')) + `
     <div class="page-head page-head--posts">
-      <h2 class="page-title">订阅者</h2>
-      <span class="head-note">共 ${d.rows.length} 位 · 新随笔发布后可导出名单寄信</span>
+      <h2 class="page-title">${text(ctx, 'admin.subscribers.title')}</h2>
+      <span class="head-note">${text(ctx, 'admin.subscribers.summary', { count: d.rows.length })}</span>
       <span class="spacer"></span>
-      <a class="btn btn-secondary" href="${ADMIN_PATH}/subscribers.csv">导出 CSV</a>
+      <a class="btn btn-secondary" href="${ADMIN_PATH}/subscribers.csv">${text(ctx, 'admin.subscribers.export')}</a>
     </div>
 
     <div class="table-scroll">
       <table class="table">
         <thead><tr>
-          <th>邮箱</th><th style="width:18%">登记日期</th><th style="width:12%;text-align:right">操作</th>
+          <th>${text(ctx, 'common.email')}</th><th style="width:18%">${text(ctx, 'admin.subscribers.registeredDate')}</th><th style="width:12%;text-align:right">${text(ctx, 'common.actions')}</th>
         </tr></thead>
         <tbody>${rows}
         </tbody>
       </table>
     </div>
-    ${d.rows.length ? '' : '<p class="empty-note">还没有人订阅。前台首页侧栏的订阅框会把邮箱记到这里。</p>'}
+    ${d.rows.length ? '' : `<p class="empty-note">${text(ctx, 'admin.subscribers.empty')}</p>`}
 ` + adminBottom();
 }
 
@@ -334,33 +344,33 @@ function visitors(ctx, d) {
             </td>
             <td class="cell-num">${r.pageViews} / ${r.visits}</td>
             <td class="visitor-path">${esc(r.lastPath)}</td>
-            <td class="cell-dim visitor-time"><div>${esc(r.lastSeen)}</div><div>首次 ${esc(r.firstSeen)}</div></td>
+            <td class="cell-dim visitor-time"><div>${esc(r.lastSeen)}</div><div>${text(ctx, 'admin.visitors.first', { time: r.firstSeen })}</div></td>
             <td class="cell-ops">
-              <form class="inline" method="post" action="${ADMIN_PATH}/visitors/${r.key}/delete" data-confirm="删除这位访客的记录？"><button class="op muted" type="submit">删除</button></form>
+              <form class="inline" method="post" action="${ADMIN_PATH}/visitors/${r.key}/delete" data-confirm="${text(ctx, 'admin.visitors.deleteConfirm')}"><button class="op muted" type="submit">${text(ctx, 'common.delete')}</button></form>
             </td>
           </tr>`).join('');
 
-  return adminTop(ctx, 'visitors', '访客管理') + `
+  return adminTop(ctx, 'visitors', ctx.t('admin.visitors.title')) + `
     <div class="page-head page-head--posts">
-      <h2 class="page-title">访客管理</h2>
-      <span class="head-note">近 ${d.retentionDays} 天 ${d.visitorCount} 位独立访客 · ${d.pageViews} 次页面访问</span>
+      <h2 class="page-title">${text(ctx, 'admin.visitors.title')}</h2>
+      <span class="head-note">${text(ctx, 'admin.visitors.summary', { days: d.retentionDays, visitors: d.visitorCount, views: d.pageViews })}</span>
       <span class="spacer"></span>
-      <form method="post" action="${ADMIN_PATH}/visitors/clear" data-confirm="清空全部访客记录和文章去重记录？此操作不可恢复。"><button class="btn btn-secondary" type="submit">清空记录</button></form>
+      <form method="post" action="${ADMIN_PATH}/visitors/clear" data-confirm="${text(ctx, 'admin.visitors.clearConfirm')}"><button class="btn btn-secondary" type="submit">${text(ctx, 'admin.visitors.clear')}</button></form>
     </div>
 
-    ${d.cleared ? '<p class="form-ok" style="margin-bottom:16px">访客记录已清空。</p>' : ''}
-    <p class="visitor-note">仅保存匿名浏览器的最后 IP、最后页面和最近归属地；不记录完整浏览历史。没有可信代理国家头时，归属地会显示为“未知”。</p>
+    ${d.cleared ? `<p class="form-ok" style="margin-bottom:16px">${text(ctx, 'admin.visitors.cleared')}</p>` : ''}
+    <p class="visitor-note">${text(ctx, 'admin.visitors.note')}</p>
     <div class="table-scroll">
       <table class="table visitor-table">
         <thead><tr>
-          <th>最后 IP</th><th>归属地</th><th style="text-align:right">页面 / 访问</th>
-          <th>最后页面</th><th>最近访问 / 首次访问</th><th style="text-align:right">操作</th>
+          <th>${text(ctx, 'admin.visitors.lastIp')}</th><th>${text(ctx, 'admin.visitors.location')}</th><th style="text-align:right">${text(ctx, 'admin.visitors.pagesVisits')}</th>
+          <th>${text(ctx, 'admin.visitors.lastPage')}</th><th>${text(ctx, 'admin.visitors.recentFirst')}</th><th style="text-align:right">${text(ctx, 'common.actions')}</th>
         </tr></thead>
         <tbody>${rows}
         </tbody>
       </table>
     </div>
-    ${d.rows.length ? '' : '<p class="empty-note">还没有可显示的访客。公开页面被访问后会自动出现在这里。</p>'}
+    ${d.rows.length ? '' : `<p class="empty-note">${text(ctx, 'admin.visitors.empty')}</p>`}
 ` + adminBottom();
 }
 
@@ -369,142 +379,143 @@ function settings(ctx, d) {
   const s = ctx.s;
   const adminPath = d.adminPath || ADMIN_PATH;
   const portrait = s.portraitUrl
-    ? `<img class="settings-portrait" src="${esc(s.portraitUrl)}" alt="当前作者照片">`
-    : '<div class="settings-portrait-empty">尚未上传照片</div>';
-  const favicon = `<img id="favicon-current" src="${esc(s.faviconUrl)}" alt="当前站点图标">`;
-  return adminTop(ctx, 'settings', '站点设置') + `
+    ? `<img class="settings-portrait" src="${esc(s.portraitUrl)}" alt="${text(ctx, 'admin.settings.currentPhoto')}">`
+    : `<div class="settings-portrait-empty">${text(ctx, 'admin.settings.noPhoto')}</div>`;
+  const favicon = `<img id="favicon-current" src="${esc(s.faviconUrl)}" alt="${text(ctx, 'admin.settings.currentIconAlt')}">`;
+  return adminTop(ctx, 'settings', ctx.t('admin.settings.title')) + `
     <div class="settings-col settings-wide">
-      <h2 class="page-title" style="margin-bottom:24px">站点设置</h2>
+      <h2 class="page-title" style="margin-bottom:24px">${text(ctx, 'admin.settings.title')}</h2>
 
       <form method="post" action="${ADMIN_PATH}/settings" enctype="multipart/form-data">
         <div class="settings-fields">
-          <div class="field"><label>站点名称</label><input class="input" name="title" value="${esc(s.title)}"></div>
-          <div class="field"><label>副标题</label><input class="input" name="subtitle" value="${esc(s.subtitle)}"></div>
-          <div class="field"><label>作者署名</label><input class="input" name="author" value="${esc(s.author)}"></div>
-          <div class="field"><label>页脚文字</label><input class="input" name="footer" value="${esc(s.footer)}"></div>
-          <div class="field field--narrow"><label>首页每页文章数</label><input class="input" type="number" min="1" max="20" name="perPage" value="${s.perPage}" style="font-variant-numeric:tabular-nums"></div>
-          <div class="field"><label>后台路径</label><input class="input" name="adminPath" value="${esc(adminPath)}" maxlength="65" pattern="/[A-Za-z0-9][A-Za-z0-9_-]{0,63}" autocomplete="off"><p class="note">保存后在新路径继续管理；systemd 部署会自动重启，手工启动请自行重启服务。</p></div>
-          <div class="field"><label>修改后台密码（留空则不变）</label><input class="input" type="password" name="newPassword" autocomplete="new-password" placeholder="新密码"></div>
+          <div class="field"><label>${text(ctx, 'admin.settings.siteName')}</label><input class="input" name="title" value="${esc(s.title)}"></div>
+          <div class="field"><label>${text(ctx, 'admin.settings.subtitle')}</label><input class="input" name="subtitle" value="${esc(s.subtitle)}"></div>
+          <div class="field"><label>${text(ctx, 'admin.settings.authorName')}</label><input class="input" name="author" value="${esc(s.author)}"></div>
+          <div class="field"><label>${text(ctx, 'admin.settings.footer')}</label><input class="input" name="footer" value="${esc(s.footer)}"></div>
+          <div class="field field--narrow"><label>${text(ctx, 'admin.settings.perPage')}</label><input class="input" type="number" min="1" max="20" name="perPage" value="${s.perPage}" style="font-variant-numeric:tabular-nums"></div>
+          <div class="field field--locale"><label for="settings-locale">${text(ctx, 'admin.settings.defaultLanguage')}</label><select class="input" id="settings-locale" name="locale">${languageOptions(s.locale)}</select><p class="note">${text(ctx, 'admin.settings.defaultLanguageNote')}</p></div>
+          <div class="field"><label>${text(ctx, 'admin.settings.adminPath')}</label><input class="input" name="adminPath" value="${esc(adminPath)}" maxlength="65" pattern="/[A-Za-z0-9][A-Za-z0-9_-]{0,63}" autocomplete="off"><p class="note">${text(ctx, 'admin.settings.adminPathNote')}</p></div>
+          <div class="field"><label>${text(ctx, 'admin.settings.password')}</label><input class="input" type="password" name="newPassword" autocomplete="new-password" placeholder="${text(ctx, 'admin.settings.passwordPlaceholder')}"></div>
         </div>
         <div class="settings-photo">
           <div>${portrait}</div>
           <div class="settings-photo-fields">
-            <div class="field"><label>关于页作者照片</label><input class="input" type="file" name="portrait" accept="image/jpeg,image/png,image/webp"></div>
-            <p class="note">支持 JPEG、PNG、WebP，最大 5 MiB。图片保存到数据目录，更新程序不会覆盖。</p>
-            ${s.portraitUrl ? '<label class="check-row"><input type="checkbox" name="removePortrait" value="1"> 移除当前照片</label>' : ''}
+            <div class="field"><label>${text(ctx, 'admin.settings.photo')}</label><input class="input" type="file" name="portrait" accept="image/jpeg,image/png,image/webp"></div>
+            <p class="note">${text(ctx, 'admin.settings.photoNote')}</p>
+            ${s.portraitUrl ? `<label class="check-row"><input type="checkbox" name="removePortrait" value="1"> ${text(ctx, 'admin.settings.removePhoto')}</label>` : ''}
           </div>
         </div>
         <div class="settings-actions">
-          <button class="btn btn-primary" type="submit">保存设置</button>
-          ${d.saved ? `<span class="form-ok">已保存。${d.pwChanged ? '密码已更新。' : ''}</span>` : ''}
-          ${d.adminPathChanged ? `<span class="form-ok">后台路径已改为 <a href="${esc(d.adminPathChanged)}">${esc(d.adminPathChanged)}</a>。${d.restartScheduled ? '服务正在重启。' : '请重启服务后使用新路径。'}</span>` : ''}
-          ${d.adminPathError ? '<span class="form-ok" style="color:var(--color-neutral-600)">后台路径无效或无法保存。</span>' : ''}
-          ${d.reset ? '<span class="form-ok">示例数据已恢复。</span>' : ''}
-          ${d.photoError ? '<span class="form-ok" style="color:var(--color-neutral-600)">照片未保存：请上传不超过 5 MiB 的 JPEG、PNG 或 WebP 文件。</span>' : ''}
+          <button class="btn btn-primary" type="submit">${text(ctx, 'admin.settings.save')}</button>
+          ${d.saved ? `<span class="form-ok">${text(ctx, 'admin.settings.saved')} ${d.pwChanged ? text(ctx, 'admin.settings.passwordUpdated') : ''}</span>` : ''}
+          ${d.adminPathChanged ? `<span class="form-ok">${text(ctx, 'admin.settings.pathChanged')} <a href="${esc(d.adminPathChanged)}">${esc(d.adminPathChanged)}</a>. ${text(ctx, d.restartScheduled ? 'admin.settings.restarting' : 'admin.settings.restartRequired')}</span>` : ''}
+          ${d.adminPathError ? `<span class="form-ok" style="color:var(--color-neutral-600)">${text(ctx, 'admin.settings.pathError')}</span>` : ''}
+          ${d.reset ? `<span class="form-ok">${text(ctx, 'admin.settings.resetDone')}</span>` : ''}
+          ${d.photoError ? `<span class="form-ok" style="color:var(--color-neutral-600)">${text(ctx, 'admin.settings.photoError')}</span>` : ''}
         </div>
       </form>
 
       <div class="settings-reset">
-        <h4>文章分类</h4>
-        <p class="note">新增后会立即出现在写作页的分类下拉框；删除分类和管理标签请前往「<a href="${ADMIN_PATH}/taxonomy">分类与标签</a>」。</p>
+        <h4>${text(ctx, 'admin.settings.categoryTitle')}</h4>
+        <p class="note">${text(ctx, 'admin.settings.categoryNote')} <a href="${ADMIN_PATH}/taxonomy">${text(ctx, 'admin.nav.taxonomy')}</a></p>
         <form class="tax-add settings-category-add" method="post" action="${ADMIN_PATH}/cats/add">
           <input type="hidden" name="returnTo" value="settings">
-          <input class="input" name="name" maxlength="40" placeholder="新分类名称" required>
-          <button class="btn btn-primary" type="submit">新增分类</button>
+          <input class="input" name="name" maxlength="40" placeholder="${text(ctx, 'admin.taxonomy.newCategory')}" required>
+          <button class="btn btn-primary" type="submit">${text(ctx, 'admin.settings.addCategory')}</button>
         </form>
-        ${d.categoryResult === 'added' ? '<p class="form-ok">分类已新增，可直接前往写作。</p>' : ''}
-        ${d.categoryResult === 'exists' ? '<p class="form-ok">这个分类已经存在。</p>' : ''}
-        ${d.categoryResult === 'err' ? '<p class="form-ok" style="color:var(--color-neutral-600)">请输入有效的分类名称。</p>' : ''}
+        ${d.categoryResult === 'added' ? `<p class="form-ok">${text(ctx, 'admin.settings.categoryAdded')}</p>` : ''}
+        ${d.categoryResult === 'exists' ? `<p class="form-ok">${text(ctx, 'admin.settings.categoryExists')}</p>` : ''}
+        ${d.categoryResult === 'err' ? `<p class="form-ok" style="color:var(--color-neutral-600)">${text(ctx, 'admin.settings.categoryInvalid')}</p>` : ''}
       </div>
 
       <div class="settings-reset settings-favicon-section">
-        <h4>站点图标</h4>
-        <p class="note">支持 SVG、JPEG、PNG 和 WebP，最大 5 MiB。图片在浏览器内裁切并转换为安全的方形 PNG，确认后才会上传。</p>
+        <h4>${text(ctx, 'admin.settings.faviconTitle')}</h4>
+        <p class="note">${text(ctx, 'admin.settings.faviconNote')}</p>
         <div class="favicon-settings-grid">
           <div class="favicon-current">
-            <span>当前图标</span>
+            <span>${text(ctx, 'admin.settings.currentIcon')}</span>
             ${favicon}
-            <small>${s.faviconCustom ? '自定义' : '默认'}</small>
+            <small>${text(ctx, s.faviconCustom ? 'common.custom' : 'common.default')}</small>
           </div>
           <div class="favicon-control">
             <form id="favicon-form" method="post" action="${ADMIN_PATH}/favicon" enctype="multipart/form-data" data-return-url="${ADMIN_PATH}/settings">
               <div class="field">
-                <label for="favicon-file">选择图片</label>
+                <label for="favicon-file">${text(ctx, 'admin.settings.selectImage')}</label>
                 <input class="input" id="favicon-file" type="file" accept=".svg,image/svg+xml,image/jpeg,image/png,image/webp">
               </div>
               <div class="favicon-editor" id="favicon-editor" hidden>
                 <div class="favicon-workspace">
                   <div>
-                    <span class="favicon-label">裁切区域</span>
-                    <canvas class="favicon-crop" id="favicon-crop" width="256" height="256" tabindex="0" aria-label="站点图标裁切区域，可拖动图片调整位置"></canvas>
-                    <p class="note">拖动图片调整位置，也可聚焦后使用方向键微调。</p>
+                    <span class="favicon-label">${text(ctx, 'admin.settings.cropArea')}</span>
+                    <canvas class="favicon-crop" id="favicon-crop" width="256" height="256" tabindex="0" aria-label="${text(ctx, 'admin.settings.cropAria')}"></canvas>
+                    <p class="note">${text(ctx, 'admin.settings.cropHelp')}</p>
                   </div>
                   <div class="favicon-preview-panel">
-                    <span class="favicon-label">标签页预览</span>
+                    <span class="favicon-label">${text(ctx, 'admin.settings.tabPreview')}</span>
                     <div class="favicon-tab-preview">
                       <img id="favicon-preview-tab" alt="">
                       <span>${esc(s.title)}</span>
                     </div>
-                    <div class="favicon-size-preview" aria-label="常见图标尺寸预览">
+                    <div class="favicon-size-preview" aria-label="${text(ctx, 'admin.settings.sizesAria')}">
                       <span><img id="favicon-preview-32" alt="">32 px</span>
                       <span><img id="favicon-preview-16" alt="">16 px</span>
                     </div>
                   </div>
                 </div>
                 <label class="favicon-zoom" for="favicon-zoom">
-                  <span>缩放</span>
+                  <span>${text(ctx, 'admin.settings.zoom')}</span>
                   <input id="favicon-zoom" type="range" min="1" max="3" step="0.01" value="1">
                 </label>
                 <div class="favicon-actions">
-                  <button class="btn btn-secondary" id="favicon-center" type="button">重置裁切</button>
-                  <button class="btn btn-ghost muted" id="favicon-cancel" type="button">取消</button>
-                  <button class="btn btn-primary" id="favicon-upload" type="submit" disabled>确认并上传</button>
+                  <button class="btn btn-secondary" id="favicon-center" type="button">${text(ctx, 'admin.settings.resetCrop')}</button>
+                  <button class="btn btn-ghost muted" id="favicon-cancel" type="button">${text(ctx, 'common.cancel')}</button>
+                  <button class="btn btn-primary" id="favicon-upload" type="submit" disabled>${text(ctx, 'admin.settings.confirmUpload')}</button>
                 </div>
               </div>
               <p class="favicon-status" id="favicon-status" role="status" aria-live="polite">
-                ${d.faviconResult === 'saved' ? '站点图标已更新，缓存版本已刷新。' : ''}
-                ${d.faviconResult === 'default' ? '已恢复默认图标，缓存版本已刷新。' : ''}
-                ${d.faviconResult === 'err' ? '站点图标操作失败，请重试。' : ''}
+                ${d.faviconResult === 'saved' ? text(ctx, 'admin.settings.faviconUpdated') : ''}
+                ${d.faviconResult === 'default' ? text(ctx, 'admin.settings.faviconRestored') : ''}
+                ${d.faviconResult === 'err' ? text(ctx, 'admin.settings.faviconFailed') : ''}
               </p>
             </form>
-            ${s.faviconCustom ? `<form method="post" action="${ADMIN_PATH}/favicon/remove" data-confirm="恢复默认站点图标？">
-              <button class="btn btn-secondary" type="submit">恢复默认图标</button>
+            ${s.faviconCustom ? `<form method="post" action="${ADMIN_PATH}/favicon/remove" data-confirm="${text(ctx, 'admin.settings.restoreIconConfirm')}">
+              <button class="btn btn-secondary" type="submit">${text(ctx, 'admin.settings.restoreDefaultIcon')}</button>
             </form>` : ''}
           </div>
         </div>
       </div>
 
       <div class="settings-reset">
-        <h4>数据备份</h4>
-        <p class="note">导出文章、评论、分类标签、订阅者与站点设置；不含密码、访客记录、IP、照片和站点图标文件。请单独备份数据目录内的 uploads 文件夹。</p>
+        <h4>${text(ctx, 'admin.settings.backupTitle')}</h4>
+        <p class="note">${text(ctx, 'admin.settings.backupNote')}</p>
         <div style="display:flex;align-items:center;gap:14px;margin-bottom:18px">
-          <a class="btn btn-secondary" href="${ADMIN_PATH}/export">导出备份</a>
-          ${d.importResult === 'ok' ? '<span class="form-ok">导入完成。</span>' : ''}
-          ${d.importResult === 'err' ? '<span class="form-ok" style="color:var(--color-neutral-600)">导入失败：备份内容无法识别。</span>' : ''}
+          <a class="btn btn-secondary" href="${ADMIN_PATH}/export">${text(ctx, 'admin.settings.exportBackup')}</a>
+          ${d.importResult === 'ok' ? `<span class="form-ok">${text(ctx, 'admin.settings.importDone')}</span>` : ''}
+          ${d.importResult === 'err' ? `<span class="form-ok" style="color:var(--color-neutral-600)">${text(ctx, 'admin.settings.importError')}</span>` : ''}
         </div>
-        <form method="post" action="${ADMIN_PATH}/import" enctype="multipart/form-data" data-confirm="导入将覆盖现有全部文章、评论、分类标签与订阅者；文章独立访客数会重新开始统计，确定继续？">
+        <form method="post" action="${ADMIN_PATH}/import" enctype="multipart/form-data" data-confirm="${text(ctx, 'admin.settings.importConfirm')}">
           <div class="field" style="margin-bottom:10px">
-            <label>恢复备份（选择导出的 JSON 文件，或粘贴内容）</label>
+            <label>${text(ctx, 'admin.settings.importLabel')}</label>
             <input class="input" type="file" name="backup" accept="application/json,.json">
             <textarea class="input" name="payload" rows="4" placeholder='{"app":"mo-blog", …}' style="margin-top:8px"></textarea>
           </div>
-          <button class="btn btn-secondary" type="submit">导入并覆盖</button>
+          <button class="btn btn-secondary" type="submit">${text(ctx, 'admin.settings.importSubmit')}</button>
         </form>
       </div>
 
       <div class="settings-reset">
-        <h4>示例数据</h4>
-        <p class="note">将文章、评论、分类与设置恢复为初始示例；文章独立访客数会重新统计。</p>
-        <form method="post" action="${ADMIN_PATH}/reset" data-confirm="恢复初始示例数据？当前的文章与评论会被覆盖，文章独立访客数会重新统计。">
-          <button class="btn btn-secondary" type="submit">恢复示例数据</button>
+        <h4>${text(ctx, 'admin.settings.seedTitle')}</h4>
+        <p class="note">${text(ctx, 'admin.settings.seedNote')}</p>
+        <form method="post" action="${ADMIN_PATH}/reset" data-confirm="${text(ctx, 'admin.settings.seedConfirm')}">
+          <button class="btn btn-secondary" type="submit">${text(ctx, 'admin.settings.seedAction')}</button>
         </form>
       </div>
 
       <div class="settings-reset">
-        <h4>退出登录</h4>
-        <p class="note">退出后需要重新输入密码才能进入后台。</p>
+        <h4>${text(ctx, 'admin.settings.logoutTitle')}</h4>
+        <p class="note">${text(ctx, 'admin.settings.logoutNote')}</p>
         <form method="post" action="${ADMIN_PATH}/logout">
-          <button class="btn btn-secondary" type="submit">退出登录</button>
+          <button class="btn btn-secondary" type="submit">${text(ctx, 'admin.settings.logoutAction')}</button>
         </form>
       </div>
     </div>

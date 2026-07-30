@@ -3,9 +3,16 @@
 const fs = require('fs');
 const path = require('path');
 const { q, siteSettings, parseTags } = require('../lib/db');
-const { trackVisitor, trackArticleVisitor, shouldTrack } = require('../lib/visitors');
+const { trackVisitor, trackArticleVisitor, shouldTrack, VISITOR_RETENTION_DAYS } = require('../lib/visitors');
 const { SITE_URL } = require('../lib/config');
 const { mdToHtml, esc } = require('../lib/md');
+const { cookieOptions } = require('../lib/auth');
+const {
+  LOCALE_COOKIE,
+  attachRequestI18n,
+  isSupportedLocale,
+  safeLocalPath
+} = require('../lib/i18n');
 const view = require('../views/front');
 
 const SHOW_VIEWS = true; // 设计稿 props.showViews 默认值
@@ -29,11 +36,16 @@ function baseUrl(req) {
 
 /** 各页共用的模板上下文 */
 function ctx(req, nav) {
+  const s = siteSettings();
+  const { locale, t } = attachRequestI18n(req, s.locale);
   return {
-    s: siteSettings(),
+    s,
+    locale,
+    t,
     year: String(new Date().getFullYear()),
     nav: nav || '',
-    isAdmin: req.isAdmin
+    isAdmin: req.isAdmin,
+    currentPath: safeLocalPath(req.url)
   };
 }
 
@@ -42,15 +54,18 @@ function excerptOf(p) {
   return p.content.split('\n').find(l => l.trim() && !l.startsWith('#') && !l.startsWith('>')) || '';
 }
 
-function enrichFront(p) {
-  const reads = SHOW_VIEWS ? '阅读 ' + (p.views || 0) + ' · ' : '';
-  const visitors = '近 90 天独立访客 ' + (p.unique_views || 0) + ' · ';
+function enrichFront(p, t) {
   return {
     id: p.id,
     title: p.title,
     kicker: p.cat + ' · ' + p.date,
     excerpt: excerptOf(p),
-    metaLine: reads + visitors + '评论 ' + q.commentsFor.all(p.id).length
+    metaLine: t('front.homeMeta', {
+      views: SHOW_VIEWS ? p.views || 0 : '—',
+      days: VISITOR_RETENTION_DAYS,
+      visitors: p.unique_views || 0,
+      comments: q.commentsFor.all(p.id).length
+    })
   };
 }
 
@@ -65,7 +80,7 @@ function renderHome(req, res) {
   const cats = q.cats.all().map(r => r.name);
 
   res.html(view.home(c, {
-    pagePosts: pub.slice((page - 1) * perPage, page * perPage).map(enrichFront),
+    pagePosts: pub.slice((page - 1) * perPage, page * perPage).map(post => enrichFront(post, c.t)),
     railCats: cats.map(name => ({ name, count: pub.filter(p => p.cat === name).length })),
     railTags: q.tags.all().map(r => r.name).slice(0, 12),
     showPager: totalPages > 1,
@@ -82,22 +97,35 @@ function renderArchive(req, res) {
   const pub = q.publishedPosts.all();
   const cats = q.cats.all().map(r => r.name);
   const tagFilter = String(req.query.tag || '').trim().slice(0, 40) || null;
-  const archiveCat = !tagFilter && cats.includes(req.query.cat) ? req.query.cat : '全部';
+  const archiveCat = !tagFilter && cats.includes(req.query.cat) ? req.query.cat : null;
   const filtered = tagFilter
     ? pub.filter(p => parseTags(p).includes(tagFilter))
-    : pub.filter(p => archiveCat === '全部' || p.cat === archiveCat);
+    : pub.filter(p => !archiveCat || p.cat === archiveCat);
   const years = [...new Set(filtered.map(p => p.date.slice(0, 4)))].sort().reverse();
   const archivePath = '/archive';
 
-  const chips = ['全部'].concat(cats).map(name => ({
+  const chips = [{
+    name: c.t('front.archive.all'),
+    href: archivePath,
+    active: !tagFilter && !archiveCat
+  }].concat(cats.map(name => ({
     name,
-    href: name === '全部' ? archivePath : archivePath + '?cat=' + encodeURIComponent(name),
+    href: archivePath + '?cat=' + encodeURIComponent(name),
     active: !tagFilter && archiveCat === name
-  }));
-  if (tagFilter) chips.unshift({ name: '标签「' + tagFilter + '」×', href: archivePath, active: true });
+  })));
+  if (tagFilter) chips.unshift({
+    name: c.t('front.archive.tagChip', { tag: tagFilter }),
+    href: archivePath,
+    active: true
+  });
 
   res.html(view.archive(c, {
-    archiveSummary: '共 ' + filtered.length + ' 篇 · ' + (tagFilter ? '标签「' + tagFilter + '」' : archiveCat),
+    archiveSummary: tagFilter
+      ? c.t('front.archive.summaryTag', { count: filtered.length, tag: tagFilter })
+      : c.t('front.archive.summaryCategory', {
+        count: filtered.length,
+        category: archiveCat || c.t('front.archive.all')
+      }),
     archiveChips: chips,
     archiveGroups: years.map(y => {
       const items = filtered.filter(p => p.date.startsWith(y));
@@ -125,6 +153,14 @@ function renderAbout(req, res) {
 }
 
 function register(app) {
+  app.post('/language', (req, res) => {
+    const c = ctx(req, '');
+    const locale = String(req.body.locale || '');
+    if (!isSupportedLocale(locale)) return res.text(c.t('error.invalidLanguage'), 400);
+    res.setHeader('Set-Cookie', `${LOCALE_COOKIE}=${locale}; ${cookieOptions(365 * 24 * 3600)}`);
+    res.redirect(safeLocalPath(req.body.returnTo));
+  });
+
   /* ── 首页 ── */
   app.get('/', renderHome);
 
@@ -162,10 +198,13 @@ function register(app) {
         isDraft: post.status !== 'published',
         kicker: post.cat + ' · ' + post.date,
         title: post.title,
-        metaLine: '约 ' + post.content.replace(/\s/g, '').length + ' 字'
-          + (SHOW_VIEWS ? ' · ' + (post.views || 0) + ' 次阅读' : '')
-          + ' · 近 90 天 ' + (post.unique_views || 0) + ' 位独立访客'
-          + ' · 署名 ' + c.s.author,
+        metaLine: c.t('front.articleMeta', {
+          words: post.content.replace(/\s/g, '').length,
+          views: SHOW_VIEWS ? post.views || 0 : '—',
+          days: VISITOR_RETENTION_DAYS,
+          visitors: post.unique_views || 0,
+          author: c.s.author
+        }),
         bodyHtml: mdToHtml(post.content),
         tags: parseTags(post),
         commentCount: comments.length
@@ -183,7 +222,8 @@ function register(app) {
     const post = safeId && q.postById.get(safeId);
     if (!post || post.status !== 'published') return false;
     const text = String(req.body.text || '').trim().slice(0, 2000);
-    const name = String(req.body.name || '').trim().slice(0, 40) || '匿名';
+    const c = ctx(req, '');
+    const name = String(req.body.name || '').trim().slice(0, 40) || c.t('front.anonymous');
     if (text) q.insertComment.run(post.id, name, today(), text);
     res.redirect('/post/' + post.id + '?commented=1#comments');
   });
@@ -221,7 +261,8 @@ function register(app) {
 
   /* ── RSS(含全文) ── */
   app.get('/feed.xml', (req, res) => {
-    const s = siteSettings();
+    const c = ctx(req, '');
+    const s = c.s;
     const base = baseUrl(req);
     const cdata = html => '<![CDATA[' + String(html).replace(/\]\]>/g, ']]]]><![CDATA[>') + ']]>';
     const safeBase = esc(base);
@@ -241,7 +282,7 @@ function register(app) {
   <title>${esc(s.title)}</title>
   <link>${safeBase}</link>
   <description>${esc(s.subtitle)}</description>
-  <language>zh-cn</language>${items}
+  <language>${c.locale.toLowerCase()}</language>${items}
 </channel>
 </rss>`, 200, 'application/rss+xml; charset=utf-8');
   });
