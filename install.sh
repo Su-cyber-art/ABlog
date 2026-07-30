@@ -15,6 +15,7 @@ readonly SERVICE_USER="ablog"
 readonly SERVICE_GROUP="ablog"
 readonly INSTALL_MARKER="${CONFIG_DIR}/installer-owned"
 readonly UNIT_MARKER="# Managed by ABlog installer"
+readonly TEMP_ROOT="/var/tmp"
 
 TEMP_DIR=""
 OLD_RELEASE=""
@@ -48,12 +49,23 @@ die() {
   exit 1
 }
 
-cleanup() {
-  if [[ "${TEMP_DIR}" == /tmp/ablog.* && -d "${TEMP_DIR}" ]]; then
-    rm -rf -- "${TEMP_DIR}"
-  elif [[ -n "${TEMP_DIR}" ]]; then
+cleanup_temp_dir() {
+  [[ -n "${TEMP_DIR}" ]] || return 0
+  if [[ "${TEMP_DIR}" != "${TEMP_ROOT}"/ablog.* ]]; then
     log "拒绝清理异常临时目录: ${TEMP_DIR}" >&2
+    return 1
   fi
+  if [[ -e "${TEMP_DIR}" || -L "${TEMP_DIR}" ]]; then
+    rm -rf -- "${TEMP_DIR}" || {
+      log "无法清理临时目录: ${TEMP_DIR}" >&2
+      return 1
+    }
+  fi
+  TEMP_DIR=""
+}
+
+cleanup() {
+  cleanup_temp_dir || true
 }
 trap cleanup EXIT
 
@@ -162,6 +174,16 @@ refresh_latest_version() {
     LATEST_VERSION="${latest}"
   fi
   return 0
+}
+
+requested_release_version() {
+  if [[ "${VERSION}" != "latest" ]]; then
+    printf '%s' "${VERSION}"
+    return
+  fi
+  refresh_latest_version
+  [[ "${LATEST_VERSION}" != "获取失败" ]] || return 1
+  printf '%s' "${LATEST_VERSION}"
 }
 
 print_menu() {
@@ -443,8 +465,9 @@ download_release() {
     base_url="https://github.com/${REPOSITORY}/releases/download/${VERSION}"
   fi
 
-  TEMP_DIR="$(TMPDIR=/tmp mktemp -d /tmp/ablog.XXXXXXXX)" || die "无法创建临时目录"
-  [[ "${TEMP_DIR}" == /tmp/ablog.* && -d "${TEMP_DIR}" ]] || die "临时目录无效"
+  cleanup_temp_dir || die "无法清理上一次操作的临时目录"
+  TEMP_DIR="$(mktemp -d "${TEMP_ROOT}/ablog.XXXXXXXX")" || die "无法在 ${TEMP_ROOT} 创建临时目录"
+  [[ "${TEMP_DIR}" == "${TEMP_ROOT}"/ablog.* && -d "${TEMP_DIR}" ]] || die "临时目录无效"
   archive="${TEMP_DIR}/${asset}"
   checksum="${archive}.sha256"
 
@@ -464,7 +487,8 @@ download_release() {
   [[ "${actual,,}" == "${expected,,}" ]] || die "发布包 SHA-256 校验失败"
 
   validate_archive "${archive}"
-  tar --no-same-owner --no-same-permissions -xzf "${archive}" -C "${TEMP_DIR}"
+  tar --no-same-owner --no-same-permissions -xzf "${archive}" -C "${TEMP_DIR}" ||
+    die "解压发布包失败；请检查 ${TEMP_ROOT} 可用空间"
   [[ -x "${TEMP_DIR}/ablog/node/bin/node" && ! -L "${TEMP_DIR}/ablog/node/bin/node" ]] || die "发布包缺少安全的 Node.js 可执行文件"
   [[ -f "${TEMP_DIR}/ablog/app/server.js" && ! -L "${TEMP_DIR}/ablog/app/server.js" ]] || die "发布包缺少安全的 ABlog 服务入口"
   "${TEMP_DIR}/ablog/node/bin/node" --version >/dev/null 2>&1 || die "发布包内 Node.js 与当前 Linux 系统不兼容"
@@ -628,6 +652,37 @@ install_release() {
   mv "${staged_release}" "${NEW_RELEASE}"
   ln -s "${NEW_RELEASE}" "${new_link}"
   mv -Tf "${new_link}" "${CURRENT_LINK}"
+}
+
+prune_old_releases() {
+  local current_release previous_release candidate candidate_release
+  [[ -d "${RELEASES_DIR}" ]] || return 0
+  current_release="$(readlink -f "${CURRENT_LINK}" 2>/dev/null || true)"
+  case "${current_release}" in
+    "${RELEASES_DIR}/"*) ;;
+    *) log "无法确认当前 Release，跳过历史版本清理" >&2; return 1 ;;
+  esac
+
+  previous_release=""
+  if [[ -n "${OLD_RELEASE}" ]]; then
+    previous_release="$(readlink -f "${OLD_RELEASE}" 2>/dev/null || true)"
+  fi
+
+  for candidate in "${RELEASES_DIR}"/*; do
+    [[ -d "${candidate}" && ! -L "${candidate}" ]] || continue
+    candidate_release="$(readlink -f "${candidate}" 2>/dev/null || true)"
+    case "${candidate_release}" in
+      "${RELEASES_DIR}/"*) ;;
+      *) log "跳过异常 Release 路径: ${candidate}" >&2; continue ;;
+    esac
+    if [[ "${candidate_release}" == "${current_release}" || "${candidate_release}" == "${previous_release}" ]]; then
+      continue
+    fi
+    rm -rf -- "${candidate_release}" || {
+      log "无法清理旧版本: ${candidate_release}" >&2
+      return 1
+    }
+  done
 }
 
 write_systemd_unit() {
@@ -874,7 +929,16 @@ deploy_ablog() {
     fi
     die "部署与回滚均失败，请立即检查服务状态"
   fi
+  if ! prune_old_releases; then
+    log "升级已完成，但历史版本未完全清理" >&2
+  fi
   print_result
+  if ! cleanup_temp_dir; then
+    log "部署已完成，但临时目录未能清理" >&2
+  fi
+  OLD_RELEASE=""
+  NEW_RELEASE=""
+  OLD_UNIT_BACKUP=""
 }
 
 install_ablog() {
@@ -884,7 +948,13 @@ install_ablog() {
 }
 
 upgrade_ablog() {
+  local current_version target_version
   is_installed || die "未检测到可升级的 ABlog；请先安装"
+  current_version="$(installed_version)"
+  if target_version="$(requested_release_version)" && [[ "${current_version}" == "${target_version}" ]]; then
+    log "当前已是 ${target_version}，无需重复升级"
+    return
+  fi
   OPERATION='upgrade'
   deploy_ablog
 }

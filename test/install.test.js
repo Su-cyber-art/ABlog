@@ -7,7 +7,9 @@ const path = require('node:path');
 const root = path.join(__dirname, '..');
 
 function bash(args) {
-  const result = spawnSync('bash', args, { cwd: root, encoding: 'utf8' });
+  const commandArgs = args[0] === '-c' ? ['-s'] : args;
+  const input = args[0] === '-c' ? args[1] : undefined;
+  const result = spawnSync('bash', commandArgs, { cwd: root, encoding: 'utf8', input });
   if (result.error) throw result.error;
   return result;
 }
@@ -171,6 +173,65 @@ test('最新版本查询在同一菜单会话中缓存', () => {
   assert.equal(cached.status, 0, cached.stderr);
   assert.match(cached.stdout, /LATEST_VERSION="v2\.0\.0"/);
   assert.match(cached.stdout, /LATEST_VERSION_CHECKED="1"/);
+});
+
+test('相同版本升级直接跳过，不重复部署', () => {
+  const same = bash(['-c', `
+    source ./install.sh
+    is_installed() { return 0; }
+    installed_version() { printf '%s' 'v1.3.1'; }
+    refresh_latest_version() { LATEST_VERSION='v1.3.1'; LATEST_VERSION_CHECKED='1'; }
+    deploy_ablog() { printf '%s' 'unexpected-deploy'; }
+    upgrade_ablog
+  `]);
+  assert.equal(same.status, 0, same.stderr);
+  assert.match(same.stdout, /当前已是 v1\.3\.1，无需重复升级/);
+  assert.doesNotMatch(same.stdout, /unexpected-deploy/);
+
+  const newer = bash(['-c', `
+    source ./install.sh
+    is_installed() { return 0; }
+    installed_version() { printf '%s' 'v1.3.1'; }
+    refresh_latest_version() { LATEST_VERSION='v1.3.2'; LATEST_VERSION_CHECKED='1'; }
+    deploy_ablog() { printf '%s' 'deployed'; }
+    upgrade_ablog
+  `]);
+  assert.equal(newer.status, 0, newer.stderr);
+  assert.equal(newer.stdout, 'deployed');
+});
+
+test('安装器使用持久临时分区并可在每次操作后清理', () => {
+  const result = bash(['-c', `
+    source ./install.sh
+    TEMP_DIR="$(mktemp -d "\${TEMP_ROOT}/ablog.XXXXXXXX")"
+    temp_path="$TEMP_DIR"
+    touch "$TEMP_DIR/marker"
+    cleanup_temp_dir
+    [[ -z "$TEMP_DIR" && ! -e "$temp_path" ]]
+    printf 'TEMP_ROOT=%s\n' "$TEMP_ROOT"
+    declare -f download_release deploy_ablog
+  `]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /TEMP_ROOT=\/var\/tmp/);
+  assert.match(result.stdout, /cleanup_temp_dir/);
+  assert.match(result.stdout, /检查.*可用空间/);
+});
+
+test('升级成功后只保留当前和上一版 Release', () => {
+  const result = bash(['-c', `
+    d=$(mktemp -d)
+    awk -v root="$d/opt" '{ if ($0 ~ /^readonly INSTALL_ROOT=/) print "readonly INSTALL_ROOT=\\"" root "\\""; else print }' ./install.sh >"$d/install.sh"
+    source "$d/install.sh"
+    mkdir -p "$RELEASES_DIR/old" "$RELEASES_DIR/previous" "$RELEASES_DIR/current"
+    ln -s "$RELEASES_DIR/current" "$CURRENT_LINK"
+    OLD_RELEASE="$RELEASES_DIR/previous"
+    prune_old_releases
+    [[ ! -e "$RELEASES_DIR/old" ]]
+    [[ -d "$RELEASES_DIR/previous" ]]
+    [[ -d "$RELEASES_DIR/current" ]]
+    rm -rf "$d"
+  `]);
+  assert.equal(result.status, 0, result.stderr);
 });
 
 test('安装结果优先使用站点公网地址，再检测公网 IP 或回退网卡地址', () => {
