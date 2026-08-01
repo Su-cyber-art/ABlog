@@ -4,15 +4,16 @@
 
 ## 项目定位
 
-ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
+ABlog（默·博客）是一个强调轻量部署和可迁移数据的个人博客：
 
 - CommonJS JavaScript，最低 Node.js 版本为 22.13。
 - HTTP 服务、密码学和 SQLite 分别使用 Node.js 内置的 `http`、`crypto`、`node:sqlite`。
-- 页面由纯 JavaScript 模板函数服务端渲染，没有模板引擎、打包器或前端框架。
+- 页面由纯 JavaScript 模板函数服务端渲染，没有模板引擎或前端框架；后台编辑器使用 esbuild 生成单文件浏览器 bundle。
+- Markdown 使用 `markdown-it` 及少量插件，代码高亮使用 `highlight.js`，后台写作区使用 CodeMirror 6。
 - 数据保存在单个 SQLite 数据库中，首次启动自动建表并写入示例数据。
 - Linux Release 内置官方 Node.js 可执行文件，支持 glibc Linux x64 和 arm64。
 
-“零依赖、解压即用、数据易迁移”是项目的核心特性。没有明确收益和维护方案时，不得新增 npm 运行时依赖、构建步骤或外部服务。
+“Release 解压即用、数据易迁移、依赖可审计”是项目的核心特性。新增依赖必须有明确收益、锁定版本和维护方案；优先选择纯 JavaScript 包，避免无必要的原生扩展和外部服务。
 
 ## 仓库结构
 
@@ -24,20 +25,21 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 | `lib/auth.js` | scrypt 密码哈希、HMAC 会话令牌、Cookie 解析 |
 | `lib/config.js` | 环境配置校验和后台 URL 生成 |
 | `lib/i18n.js`、`lib/i18n-messages.js` | 语言选择、Cookie、翻译函数和七种语言文案 |
-| `lib/md.js` | Node 与浏览器共用的安全 Markdown 子集渲染器 |
+| `lib/md.js` | Node 与浏览器 bundle 共用的安全 Markdown/GFM 渲染配置 |
 | `lib/media.js` | 关于页照片与站点图标的校验、原子写入和移除 |
 | `routes/front.js` | 前台页面、评论、订阅和 RSS |
 | `routes/admin.js` | 登录保护及所有后台读写操作 |
 | `views/*.js` | 纯 HTML 模板函数和共享 UI 片段 |
 | `public/css/site.css` | 设计令牌、组件、页面和响应式样式 |
 | `public/css/fonts.css` | 设计稿导出的自托管字体声明 |
-| `public/js/admin.js` | 后台确认提示、Markdown 预览和字数统计 |
+| `src/admin-entry.js` | CodeMirror 与 Markdown 浏览器 bundle 入口 |
+| `public/js/admin.js`、`public/js/admin.bundle.js` | 后台交互源码与生成的浏览器资源 |
 | `public/js/dot-grid.js` | 前台原生 Canvas 交互点阵背景及动态效果降级 |
 | `install.sh` | Linux 交互式/无人值守安装、升级和回滚 |
 | `scripts/build-linux-bundle.sh` | 组装带 Node.js 的 Linux 发布包 |
 | `.github/workflows/release-linux.yml` | `v*` 标签触发的双架构 Release |
 
-`data/`、`dist/`、`node_modules/` 和日志是本地产物，不得提交。未跟踪的 `_to_delete/`、`design/` 以及其他用户素材默认视为用户所有，除非任务明确要求，否则不要读取后改写、删除或加入提交。
+`data/`、`dist/`、`node_modules/` 和日志是本地产物，不得提交。`package-lock.json` 与 `public/js/admin.bundle.js` 是可复现交付所需文件，修改相关源码或依赖时必须同步更新。未跟踪的 `_to_delete/`、`design/` 以及其他用户素材默认视为用户所有，除非任务明确要求，否则不要读取后改写、删除或加入提交。
 
 ## 开始工作
 
@@ -100,8 +102,8 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 ## 安全与输出
 
 - 所有进入 HTML 的数据库值、查询参数和表单内容都必须经过 `views/_ui.js` 的 `esc()`。
-- 只有经过 `lib/md.js` 处理的正文可以作为 HTML 插入。修改 Markdown 时必须保持“先转义，再解析有限语法”的边界。
-- Markdown 链接只允许当前实现认可的协议；不得开放 `javascript:`、`data:` 或任意原始 HTML。
+- 只有经过 `lib/md.js` 处理的正文可以作为 HTML 插入。`markdown-it` 必须保持 `html: false`，不得开放任意原始 HTML。
+- Markdown 链接和图片分别执行协议白名单；链接不得开放 `javascript:` 或 `data:`，图片 data URL 只允许明确列出的安全位图格式，不允许 SVG。
 - 密码继续使用带随机盐的 scrypt，令牌继续使用密钥签名和恒定时间比较。
 - 会话 Cookie 至少保持 `HttpOnly`、`SameSite=Lax` 和明确的有效期。除安装器为交付本次随机初始密码而在当前终端的完成或失败结果中一次性显示外，不要在日志、页面或错误信息中输出密码、哈希、会话密钥或完整令牌。
 - 媒体上传必须按文件内容校验，不能只信任扩展名或 `Content-Type`。自定义 favicon 在浏览器内裁切并栅格化，服务端只接受不超过 512 KiB 的 256 × 256 PNG；不得持久化用户上传的原始 SVG。
@@ -120,7 +122,7 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 - 前台交互点阵必须保持零依赖、只按需渲染，并在触屏设备、页面隐藏或 `prefers-reduced-motion` 生效时停止持续动画；后台不加载点阵脚本。
 - CSS 和 JavaScript 资源 URL 必须带 `package.json` 版本参数，避免升级后继续命中旧版静态缓存。
 - `public/css/fonts.css` 和 `public/fonts/` 是配套的自托管字体资产。不要手工改动大量 `unicode-range`；字体变更必须同时验证声明、文件名和离线加载。
-- `lib/md.js` 同时运行在 Node 和浏览器中，不能引入只存在于单一环境的 API。
+- `lib/md.js` 同时进入 Node 运行时和浏览器 bundle，不能引入只存在于单一环境的 API。修改它、`src/admin-entry.js` 或 `public/js/admin.js` 后运行 `npm run build:assets` 并提交同步生成的 `public/js/admin.bundle.js`。
 
 ## 安装与发布
 
@@ -131,7 +133,7 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 - systemd 服务继续使用独立的 `ablog` 用户和现有沙箱限制。新增可写目录时同步 `ReadWritePaths`。只有安装器写入的 `ABLOG_SYSTEMD_SERVICE=1` 能触发 ABlog 的自动重启；不得用通用 `INVOCATION_ID` 判断服务归属，因为 CI Runner 等 systemd 子进程也会继承它。涉及该分支时同时测试“继承 `INVOCATION_ID` 不重启”和“专用标记会重启”。
 - 交互模式和 `ABLOG_NONINTERACTIVE=1` 都必须可用。新增配置项时同步提示、环境文件、结果输出、README 和应用端校验。
 - 涉及监听配置时同时测试 `0.0.0.0` 与 `127.0.0.1`、仅本机模式的完成页，以及旧环境文件缺少 `HOST` 的升级迁移。涉及随机密码时同时覆盖交互留空、无人值守未传值、完成结果和失败提示，且不得写入 journal。
-- `scripts/build-linux-bundle.sh` 必须只打包运行所需文件，并校验下载的官方 Node.js 归档。
+- `scripts/build-linux-bundle.sh` 必须只打包运行所需文件，使用 `npm ci --omit=dev --ignore-scripts` 写入锁定的生产依赖，并校验下载的官方 Node.js 归档。
 - 发布工作流继续为 x64、arm64 同时生成 `.tar.gz` 和 `.sha256`；修改 Node.js 版本时同步 workflow 默认值和相关文档。
 
 ## 验证要求
@@ -141,8 +143,11 @@ ABlog（默·博客）是一个零第三方运行时依赖的个人博客：
 所有 JavaScript 改动：
 
 ```powershell
+$null = npm ci --ignore-scripts
+npm run build:assets
 $files = rg --files -g '*.js'
 foreach ($file in $files) { node --check $file }
+npm test
 ```
 
 Shell 或发布改动：
@@ -197,7 +202,7 @@ bash scripts/build-linux-bundle.sh arm64 24.15.0
 
 任务只有在以下条件全部满足后才算完成：
 
-- 行为与用户请求一致，并保持零依赖和现有架构边界。
+- 行为与用户请求一致，并保持轻量部署、锁定依赖和现有架构边界。
 - 安全、数据兼容性、自定义后台路径和升级流程没有退化。
 - 相关语法检查、功能测试和视觉检查已通过。
 - 文档与实现一致，生成物和用户文件未被误提交。

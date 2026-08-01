@@ -197,10 +197,10 @@ function editor(ctx, d) {
 
       <div class="editor-box">
         <div class="ed-cols">
-          <div class="ed-col-label md">Markdown</div>
+          <div class="ed-col-label md" id="ed-content-label">Markdown</div>
           <div class="ed-col-label pv">${text(ctx, 'admin.editor.preview')}</div>
-          <textarea class="ed-textarea" id="ed-content" name="content" placeholder="${text(ctx, 'admin.editor.contentPlaceholder')}">${esc(d.dContent)}</textarea>
-          <div class="ed-preview" id="ed-preview">${preview}</div>
+          <textarea class="ed-textarea" id="ed-content" name="content" aria-labelledby="ed-content-label" placeholder="${text(ctx, 'admin.editor.contentPlaceholder')}">${esc(d.dContent)}</textarea>
+          <div class="ed-preview md-content" id="ed-preview">${preview}</div>
         </div>
         <div class="ed-foot">
           <span><span id="ed-wordcount">${d.wordCount}</span> ${text(ctx, 'admin.editor.characters')}</span>
@@ -209,7 +209,7 @@ function editor(ctx, d) {
         </div>
       </div>
     </form>
-` + adminBottom();
+` + adminBottom(true);
 }
 
 /** 分类与标签 */

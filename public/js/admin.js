@@ -243,6 +243,7 @@
   var ta = document.getElementById('ed-content');
   var pv = document.getElementById('ed-preview');
   var wc = document.getElementById('ed-wordcount');
+  var markdownEditor = ta && window.MoEditor ? window.MoEditor.mount(ta) : null;
   var render = null;
   if (ta && pv && window.MoMD) {
     render = function () {
@@ -324,8 +325,11 @@
           var has = Array.prototype.some.call(fields.cat.options, function (o) { return o.value === stored.cat; });
           if (has) fields.cat.value = stored.cat;
         }
-        ta.value = stored.content || '';
-        if (render) render();
+        if (markdownEditor) markdownEditor.setValue(stored.content || '');
+        else {
+          ta.value = stored.content || '';
+          if (render) render();
+        }
         bar.remove();
       });
       no.addEventListener('click', function () {

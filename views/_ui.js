@@ -149,12 +149,12 @@ function adminTop(ctx, view, pageTitle) {
 `;
 }
 
-function adminBottom() {
+function adminBottom(withEditor = false) {
+  const script = withEditor ? '/js/admin.bundle.js' : '/js/admin.js';
   return `
   </main>
 </div>
-<script src="${assetUrl('/js/md.js')}"></script>
-<script src="${assetUrl('/js/admin.js')}"></script>
+<script src="${assetUrl(script)}"></script>
 </body>
 </html>
 `;

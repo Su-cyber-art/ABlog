@@ -34,6 +34,13 @@ readonly NODE_DIR="node-v${NODE_VERSION}-linux-${TARGET_ARCH}"
 readonly NODE_BASE_URL="https://nodejs.org/dist/v${NODE_VERSION}"
 readonly ASSET="ablog-linux-${TARGET_ARCH}.tar.gz"
 
+command -v npm >/dev/null 2>&1 || { printf 'npm is required to build ABlog assets\n' >&2; exit 1; }
+if [[ ! -x "${PROJECT_ROOT}/node_modules/.bin/esbuild" ]] \
+  || ! npm --prefix "${PROJECT_ROOT}" ls --depth=0 --silent >/dev/null 2>&1; then
+  npm --prefix "${PROJECT_ROOT}" ci --ignore-scripts --no-audit --no-fund
+fi
+npm --prefix "${PROJECT_ROOT}" run build:assets
+
 mkdir -p "${OUTPUT_DIR}" "${TEMP_DIR}/package/ablog/node/bin" "${TEMP_DIR}/package/ablog/app"
 
 curl --proto '=https' --tlsv1.2 --fail --location --retry 3 \
@@ -64,12 +71,24 @@ cp -a \
   "${TEMP_DIR}/package/ablog/app/"
 cp \
   "${PROJECT_ROOT}/package.json" \
+  "${PROJECT_ROOT}/package-lock.json" \
   "${PROJECT_ROOT}/README.md" \
   "${PROJECT_ROOT}/server.js" \
   "${PROJECT_ROOT}/install.sh" \
   "${TEMP_DIR}/package/ablog/app/"
 if [[ -f "${PROJECT_ROOT}/LICENSE" ]]; then
   cp "${PROJECT_ROOT}/LICENSE" "${TEMP_DIR}/package/ablog/app/"
+fi
+
+# Release 内包含锁文件固定的纯 JavaScript 运行依赖，目标机无需 npm 或联网安装。
+(
+  cd "${TEMP_DIR}/package/ablog/app"
+  npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+)
+rm -rf -- "${TEMP_DIR}/package/ablog/app/node_modules/.bin"
+if find "${TEMP_DIR}/package" -type l -print -quit | grep -q .; then
+  printf 'Release staging tree must not contain symbolic links\n' >&2
+  exit 1
 fi
 
 BUILD_EPOCH="${SOURCE_DATE_EPOCH:-$(git -C "${PROJECT_ROOT}" log -1 --format=%ct 2>/dev/null || true)}"

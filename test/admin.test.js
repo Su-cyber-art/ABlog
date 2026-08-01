@@ -27,7 +27,14 @@ test('错误密码被拒、正确密码发放会话', async () => {
   assert.equal(dash.status, 200);
   assert.match(dash.body, /仪表盘/);
   assert.match(dash.body, new RegExp(`/js/admin\\.js\\?v=${appVersion.replace(/\./g, '\\.')}`));
+  assert.doesNotMatch(dash.body, /admin\.bundle\.js/);
   assert.doesNotMatch(dash.body, /dot-grid\.js/);
+  const editor = await request(srv.base, 'GET', '/admin/editor', { cookies });
+  assert.match(editor.body, new RegExp(`/js/admin\\.bundle\\.js\\?v=${appVersion.replace(/\./g, '\\.')}`));
+  const bundle = await request(srv.base, 'GET', `/js/admin.bundle.js?v=${appVersion}`);
+  assert.equal(bundle.status, 200);
+  assert.match(bundle.headers['content-type'], /javascript/);
+  assert.match(bundle.body, /MoEditor/);
 });
 
 test('登录限速:多次失败后锁定', async () => {

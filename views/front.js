@@ -113,7 +113,7 @@ function article(ctx, d) {
       <div class="art-meta">${esc(art.metaLine)}${art.isDraft ? `<span class="tag tag-neutral">${text(ctx, 'front.draftPreview')}</span>` : ''}</div>
     </div>
 
-    <div>${art.bodyHtml}</div>
+    <div class="md-content">${art.bodyHtml}</div>
 ${tags}
     <div class="fleuron"><span>❦</span></div>
 ${postNav}

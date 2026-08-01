@@ -22,14 +22,21 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "22.13.0"
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
       - name: Verify tag matches package version
         shell: bash
         run: |
           set -euo pipefail
           VERSION="$(node -p "require('./package.json').version")"
           test "${GITHUB_REF_NAME}" = "v${VERSION}"
+      - name: Verify browser bundle
+        run: |
+          npm run build:assets
+          git diff --exit-code -- public/js/admin.bundle.js
       - name: Run tests
-        run: node --test
+        run: npm test
 
   build:
     name: Build linux-${{ matrix.arch }}
@@ -45,6 +52,15 @@ jobs:
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
+
+      - name: Set up build Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.13.0"
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
 
       - name: Assemble binary bundle
         env:

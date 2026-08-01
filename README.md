@@ -2,7 +2,7 @@
 
 一册记录日常的随笔——古典衬线风格的个人博客系统,按 Claude Design 设计稿「默·博客」完整实现。
 
-**零依赖**:只用 Node.js 内置模块(内置 http 服务 + 内置 SQLite),不需要 `npm install`,解压即可运行。
+核心服务继续使用 Node.js 内置 HTTP、密码学和 SQLite；Markdown 与后台编辑器采用锁定版本的成熟依赖。源码运行先执行一次 `npm ci`，Linux 二进制 Release 已内置 Node.js、生产依赖和浏览器资源，仍然是解压即用。
 
 ## Linux 二进制一键部署
 
@@ -59,8 +59,9 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 ## 快速开始
 
 1. 安装 [Node.js](https://nodejs.org)（支持 **22.13+ 的 22.x，或 23.4+**；建议直接安装最新 LTS）
-2. 双击 `start.bat`(或在本目录执行 `node server.js`)
-3. 浏览器打开:
+2. 首次运行执行 `npm ci`；Windows 也可以直接双击 `start.bat`，脚本会在缺少依赖时自动安装
+3. 执行 `npm start`（Windows 可继续使用 `start.bat`）
+4. 浏览器打开:
    - 前台 <http://localhost:3000>
    - 后台 <http://localhost:3000/admin>
 
@@ -71,7 +72,7 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 **前台**
 
 - 首页:文章列表(分类·日期、摘要、阅读/独立访客/评论数)、分页、搜索/分类/标签/订阅侧栏
-- 文章页:Markdown 正文、可点击标签、上一篇/下一篇导航、评论区、访客留言(提交后进入待审);原始阅读次数与独立访客数分开统计
+- 文章页:CommonMark/GFM 正文、可点击标签、上一篇/下一篇导航、评论区、访客留言(提交后进入待审);原始阅读次数与独立访客数分开统计
 - 归档:按年份分组,支持分类与标签两种筛选
 - 全文搜索:`/search`,匹配标题/正文/标签(仅已发布)
 - 关于:作者照片位 + 自述;照片可在后台「站点设置」上传,持久化到数据目录
@@ -83,7 +84,7 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 
 - 仪表盘:已发布/草稿/待审评论/总阅读/独立访客统计、最近文章、待审评论快捷处理
 - 文章管理:全部/已发布/草稿筛选,查看/编辑/删除
-- 写作:Markdown 双栏实时预览编辑器,支持 `# 标题`、`**粗体**`、`*斜体*`、`> 引用`、`- 列表`、`--- 分隔线`、`` `代码` ``、` ``` ` 围栏代码块、`![图片](url)`、`[链接](url)`;字数统计、存草稿/发布;**离开页面自动暂存,防止丢稿**
+- 写作:CodeMirror 6 双栏实时预览编辑器，支持 CommonMark、GFM 表格/任务列表/删除线、代码围栏与常用语言高亮、脚注和 `[[toc]]` 目录；保留字数统计、存草稿/发布与**离开页面自动暂存**
 - 分类与标签:增删管理;使用中的分类不可删除;删除标签会同时清掉文章上的引用
 - 评论管理:待审/已通过/垃圾,通过/标垃圾/删除
 - 订阅者:名单查看、单条移除、一键导出 CSV
@@ -97,6 +98,7 @@ curl -fsSL https://raw.githubusercontent.com/Su-cyber-art/ABlog/main/install.sh 
 **性能与安全**
 
 - 响应 gzip 压缩、版本化静态资源与 304 协商缓存、HEAD 请求支持
+- Markdown 原始 HTML 默认关闭，链接和图片使用独立协议白名单；浏览器预览与服务端正文共用同一渲染配置
 - 安全响应头(CSP / X-Content-Type-Options / X-Frame-Options / Referrer-Policy)
 - 登录失败限速锁定、改密后其他设备会话立即失效、跨站 POST 拦截
 - `/healthz` 健康检查、SIGTERM 优雅退出
@@ -119,7 +121,9 @@ VISITOR_COUNTRY_HEADER=cf-ipcountry
 ## 测试
 
 ```bash
-npm test        # 等价于 node --test,零依赖
+npm ci
+npm run build:assets  # 重新生成后台编辑器浏览器 bundle
+npm test              # 使用 Node 内置 node:test
 ```
 
 覆盖前台、后台、单元和安装器场景:页面渲染、分页、草稿权限、搜索、归档筛选、评论审核、
@@ -129,8 +133,9 @@ npm test        # 等价于 node --test,零依赖
 
 ```
 Ablog/
-├── server.js          入口(内置 http,零依赖)
+├── server.js          入口(内置 HTTP 服务)
 ├── start.bat          Windows 一键启动
+├── package-lock.json  npm 依赖与完整性锁定
 ├── install.sh         Linux 二进制一键部署
 ├── .github/workflows/
 │   └── release-linux.yml  x64/ARM64 二进制包发布
@@ -144,15 +149,16 @@ Ablog/
 │   ├── i18n*.js       七种界面语言、Cookie 选择与翻译文案
 │   ├── visitors.js    匿名访客、文章去重阅读、可信代理归属地
 │   ├── media.js       数据目录图片上传与校验
-│   └── md.js          Markdown 渲染器(前后端共用,与设计稿一致)
+│   └── md.js          安全 Markdown/GFM 渲染配置(服务端与浏览器 bundle 共用)
 ├── lib/app.js        应用装配(路由/静态/中间件,可被测试直接加载)
 ├── routes/            前台/后台路由
+├── src/admin-entry.js 后台浏览器 bundle 入口(CodeMirror + Markdown 预览)
 ├── views/             模板函数(纯 JS,无模板引擎)
 ├── test/              node:test 集成与单元测试
 ├── public/
 │   ├── css/           设计令牌 + 组件样式(Classical 设计系统)+ 自托管字体声明
 │   ├── fonts/         Cormorant Garamond / Lora / Noto Serif SC 字体子集(自托管,离线可用)
-│   └── js/admin.js    后台交互(实时预览、确认框、自动暂存)
+│   └── js/            后台交互源码与生成的 admin.bundle.js
 └── data/blog.db       SQLite 数据库(首次启动自动创建并写入示例数据)
 ```
 
@@ -169,13 +175,13 @@ Ablog/
 
 ## 部署到公网(可选)
 
-Linux 服务器推荐使用上方的二进制一键部署。一键安装器默认选择 `HOST=0.0.0.0`，安装完成后可通过 `http://服务器IP:端口` 直连；选择“仅本机”时使用 `HOST=127.0.0.1`，供同机的 Nginx/Caddy 反向代理访问。手动部署时，使用 Node 22.13+（22.x）或 23.4+ 执行 `node server.js` 即可；服务默认监听 `127.0.0.1`，需要对外绑定时显式设置 `HOST=0.0.0.0`。
+Linux 服务器推荐使用上方的二进制一键部署。一键安装器默认选择 `HOST=0.0.0.0`，安装完成后可通过 `http://服务器IP:端口` 直连；选择“仅本机”时使用 `HOST=127.0.0.1`，供同机的 Nginx/Caddy 反向代理访问。手动源码部署时，使用 Node 22.13+（22.x）或 23.4+ 先执行 `npm ci --omit=dev`，再执行 `node server.js`；服务默认监听 `127.0.0.1`，需要对外绑定时显式设置 `HOST=0.0.0.0`。
 
 ABlog 自身只提供 HTTP。正式公网部署应使用 Nginx/Caddy 提供 HTTPS，并设置环境变量 `SITE_URL=https://你的域名`（仅允许协议、主机和可选端口）。`SITE_URL` 会用于 RSS、站点地图等绝对链接、跨站 POST 校验，并让会话 Cookie 启用 `Secure`；反向代理应覆盖客户端传入的转发头，并将 Node 端口限制为仅本机或可信网络可达。
 
 首次部署前可同时设置监听地址、强密码和后台路径:`HOST=0.0.0.0 ADMIN_PASSWORD=你的密码 ADMIN_PATH=/manage_7f3a node server.js`。密码仅在数据库首次初始化时生效；不设置或设为空值时会随机生成。后台路径默认从环境变量读取，后台设置修改后会保存到数据目录并在下次启动时优先使用。数据默认在 `data/blog.db`，也可通过 `ABLOG_DATA_DIR` 指定独立的非静态数据目录；解析符号链接后的实际路径也不能位于 `public/` 内。
 
-维护者推送 `v*` 标签后,GitHub Actions 会自动生成 Linux x64/ARM64 二进制包和 SHA-256 校验文件:
+维护者推送 `v*` 标签后,GitHub Actions 会自动生成包含锁定生产依赖的 Linux x64/ARM64 二进制包和 SHA-256 校验文件:
 
 ```bash
 git tag v1.0.0

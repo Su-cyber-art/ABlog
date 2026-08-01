@@ -10,12 +10,12 @@ const { mdToHtml } = require('../lib/md');
 const { normalizeAdminPath, normalizeSiteUrl, assertPrivateDataDir } = require('../lib/config');
 
 test('标题/引用/列表/分隔线', () => {
-  assert.match(mdToHtml('# 一'), /<h1/);
+  assert.match(mdToHtml('# 一'), /<h1 id="一"/);
   assert.match(mdToHtml('## 二'), /<h2/);
   assert.match(mdToHtml('> 引用'), /<blockquote/);
   assert.match(mdToHtml('- 甲\n- 乙'), /<ul[\s\S]*<li[\s\S]*<li/);
   assert.match(mdToHtml('1. 甲\n2. 乙'), /<ol/);
-  assert.match(mdToHtml('---'), /<div[^>]*height:1px/);
+  assert.match(mdToHtml('---'), /<hr>/);
 });
 
 test('行内:粗体/斜体/代码/链接', () => {
@@ -25,8 +25,10 @@ test('行内:粗体/斜体/代码/链接', () => {
   assert.match(mdToHtml('[文字](https://x.cn)'), /<a href="https:\/\/x\.cn"/);
 });
 
-test('危险链接协议被降级为 #', () => {
-  assert.match(mdToHtml('[x](javascript:alert(1))'), /href="#"/);
+test('危险链接协议不会生成可点击链接', () => {
+  const h = mdToHtml('[x](javascript:alert(1))');
+  assert.doesNotMatch(h, /<a\b/);
+  assert.match(h, /javascript:alert/);
 });
 
 test('围栏代码块原样转义、不解析行内', () => {
@@ -60,8 +62,50 @@ test('HTML 转义', () => {
 
 test('版式选项:关闭对齐与缩进', () => {
   const h = mdToHtml('一段文字', { justify: false, indent: false });
-  assert.match(h, /text-align:left/);
-  assert.match(h, /text-indent:0/);
+  assert.match(h, /class="md-paragraph md-align-left md-no-indent"/);
+});
+
+test('完整 Markdown 支持表格、任务列表、删除线、脚注与目录', () => {
+  const h = mdToHtml([
+    '# 功能',
+    '',
+    '[[toc]]',
+    '',
+    '| 项目 | 状态 |',
+    '| --- | --- |',
+    '| 编辑器 | 完成 |',
+    '',
+    '- [x] 表格',
+    '- [ ] 脚注',
+    '',
+    '~~旧文本~~与脚注[^1]',
+    '',
+    '[^1]: 注释内容'
+  ].join('\n'));
+  assert.match(h, /<nav class="table-of-contents">/);
+  assert.match(h, /<table>[\s\S]*<th>项目<\/th>/);
+  assert.match(h, /class="contains-task-list"/);
+  assert.match(h, /type="checkbox"/);
+  assert.match(h, /<s>旧文本<\/s>/);
+  assert.match(h, /class="footnotes"/);
+});
+
+test('代码围栏按已知语言高亮，未知语言仍安全转义', () => {
+  const known = mdToHtml('```js\nconst answer = 42;\n```');
+  assert.match(known, /class="language-js"/);
+  assert.match(known, /hljs-keyword/);
+
+  const unknown = mdToHtml('```not-a-language\n<x>&y\n```');
+  assert.match(unknown, /&lt;x&gt;&amp;y/);
+});
+
+test('原始 HTML 与 SVG data 图片不会进入渲染结果', () => {
+  const html = mdToHtml('<img src=x onerror=alert(1)>');
+  assert.doesNotMatch(html, /<img\b/);
+  assert.match(html, /&lt;img/);
+
+  const svg = mdToHtml('![x](data:image/svg+xml;base64,PHN2Zz4=)');
+  assert.doesNotMatch(svg, /<img\b/);
 });
 
 test('normalizeAdminPath 接受合法、拒绝非法与保留字', () => {
